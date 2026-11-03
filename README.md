@@ -17,7 +17,7 @@ This repository defines a raw UEFI GPT image with systemd-boot and a destructive
 
 ## Prerequisites and build
 
-Use Linux with user namespaces, systemd >= 254, Python, DNF, QEMU/OVMF for VM tests, and enough disk space for a roughly 14 GiB raw image plus build caches. Install **mkosi 27.1** in an isolated environment, for example `pipx install mkosi==27.1`; `scripts/build` rejects other versions. A foreign architecture build also needs registered `qemu-user-static` binfmt support. The Fedora 45 tools tree downloads the needed image tools and fetches its repository signing key. See [mkosi requirements](https://github.com/systemd/mkosi/blob/v27.1/mkosi/resources/man/mkosi.1.md).
+Use Linux with user namespaces, systemd >= 254, Python, DNF, QEMU/OVMF for VM tests, and enough disk space for a roughly 14 GiB raw image plus build caches. Install **mkosi 27.1** from its upstream Git tag in an isolated environment: `pipx install 'git+https://github.com/systemd/mkosi.git@v27.1'`; `scripts/build` rejects other versions. A foreign architecture build also needs registered `qemu-user-static` binfmt support. The Fedora 45 tools tree downloads the needed image tools and fetches its repository signing key. See [mkosi installation](https://github.com/systemd/mkosi#installation) and [mkosi requirements](https://github.com/systemd/mkosi/blob/v27.1/mkosi/resources/man/mkosi.1.md).
 
 ```sh
 scripts/build x86-64

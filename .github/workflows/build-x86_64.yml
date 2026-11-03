@@ -21,7 +21,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install --yes dnf pipx systemd-container policycoreutils selinux-utils zstd
-          pipx install mkosi==27.1
+          pipx install 'git+https://github.com/systemd/mkosi.git@v27.1'
           echo "$HOME/.local/bin" >> "$GITHUB_PATH"
 
       - name: Build labeled image
