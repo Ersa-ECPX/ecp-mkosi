@@ -1,0 +1,30 @@
+#!/usr/bin/env bash
+set -euo pipefail
+cd "$(dirname "$0")/.."
+
+arch="${1:-}"
+mode="${2:-labeled}"
+case "$arch" in
+  x86-64|arm64) ;;
+  *) echo 'usage: scripts/build-podman x86-64|arm64 [labeled|unlabeled-vm]' >&2; exit 2 ;;
+esac
+case "$mode" in
+  labeled|unlabeled-vm) ;;
+  *) echo 'mode must be labeled or unlabeled-vm' >&2; exit 2 ;;
+esac
+command -v podman >/dev/null || { echo 'podman is required' >&2; exit 1; }
+
+podman build -f Containerfile.build -t localhost/ecp-mkosi:27.1 .
+
+args=(--architecture="$arch")
+if [[ "$mode" == unlabeled-vm ]]; then
+  echo 'Building an UNLABELED VM-only image with SELinux disabled at boot.' >&2
+  args+=(--selinux-relabel=no
+         --kernel-command-line='root=PARTUUID ro rhgb quiet selinux=0'
+         --image-version=0.1.0-vm-unlabeled)
+fi
+
+exec podman run --rm --privileged --userns=host \
+  --security-opt label=disable \
+  --volume "$PWD:/work:rw" --workdir /work \
+  localhost/ecp-mkosi:27.1 "${args[@]}" build

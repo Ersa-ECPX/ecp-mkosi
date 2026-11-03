@@ -1,0 +1,49 @@
+name: Build x86_64 image
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Rocky 10 labeled disk image
+    runs-on: ubuntu-24.04
+    timeout-minutes: 360
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes dnf pipx systemd-container policycoreutils selinux-utils zstd
+          pipx install mkosi==27.1
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+
+      - name: Build labeled image
+        run: scripts/build x86-64
+
+      - name: Compress image and verify checksum
+        run: |
+          set -euo pipefail
+          image="$(find mkosi.output -maxdepth 1 -type f -name '*.raw' -print -quit)"
+          test -n "$image"
+          zstd --threads=0 --compress "$image" -o "$image.zst"
+          sha256sum "$image.zst" > "$image.zst.sha256"
+
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: ecp-rocky10-x86_64
+          path: |
+            mkosi.output/*.raw.zst
+            mkosi.output/*.raw.zst.sha256
+            mkosi.output/*.manifest
+            mkosi.output/*SHA256SUMS
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 14

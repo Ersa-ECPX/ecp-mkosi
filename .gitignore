@@ -1,0 +1,16 @@
+mkosi.output/
+mkosi.cache/
+mkosi.builddir/
+mkosi.pkgcache/
+mkosi.tools/
+mkosi.tools.manifest
+.venv/
+.agents/
+.aws/
+.codex/
+__pycache__/
+*.raw
+*.qcow2
+*.iso
+*.tar
+*.SHA256SUMS

@@ -1,0 +1,3 @@
+LABEL=ECP-ETC /etc ext4 defaults 0 2
+LABEL=ECP-VAR /var ext4 defaults 0 2
+LABEL=ECP-HOME /home ext4 defaults 0 2

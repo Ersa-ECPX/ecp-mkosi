@@ -1,0 +1,8 @@
+[Plymouth Theme]
+Name=Ersa
+Description=Ersa boot logo and progress line
+ModuleName=script
+
+[script]
+ImageDir=/usr/share/plymouth/themes/ersa
+ScriptFile=/usr/share/plymouth/themes/ersa/ersa.script

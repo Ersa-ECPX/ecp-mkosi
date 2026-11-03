@@ -1,0 +1,22 @@
+#!/usr/bin/env bash
+set -euo pipefail
+if [[ "$#" -ne 3 || "$1" != '--erase' ]]; then
+  echo 'usage: sudo scripts/install-raw --erase IMAGE.raw /dev/DISK' >&2
+  exit 2
+fi
+image="$2"
+disk="$3"
+[[ -f "$image" && -b "$disk" ]] || { echo 'image or block device missing' >&2; exit 1; }
+[[ "$(id -u)" -eq 0 ]] || { echo 'run as root' >&2; exit 1; }
+if lsblk -nrpo MOUNTPOINT "$disk" | grep -q '[^[:space:]]'; then
+  echo 'target or its partitions are mounted' >&2
+  exit 1
+fi
+image_bytes="$(stat -c %s "$image")"
+disk_bytes="$(blockdev --getsize64 "$disk")"
+(( disk_bytes >= image_bytes )) || { echo 'target smaller than image' >&2; exit 1; }
+echo "ERASING $disk with $image ($image_bytes bytes)" >&2
+dd if="$image" of="$disk" bs=16M conv=fsync status=progress
+sync
+blockdev --rereadpt "$disk" || true
+echo 'Raw image written. Complete first-boot setup on the target console.' >&2

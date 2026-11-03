@@ -1,0 +1,9 @@
+FROM registry.fedoraproject.org/fedora:45
+
+RUN dnf -y install python3 python3-pip dnf5 systemd systemd-udev \
+    util-linux e2fsprogs dosfstools && dnf clean all
+RUN python3 -m venv /opt/mkosi && /opt/mkosi/bin/pip install --no-cache-dir mkosi==27.1
+
+ENV PATH=/opt/mkosi/bin:/usr/sbin:/usr/bin:/sbin:/bin
+WORKDIR /work
+ENTRYPOINT ["/opt/mkosi/bin/mkosi"]

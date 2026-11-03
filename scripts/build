@@ -1,0 +1,19 @@
+#!/usr/bin/env bash
+set -euo pipefail
+cd "$(dirname "$0")/.."
+expected='mkosi 27.1'
+if ! command -v mkosi >/dev/null; then
+  echo 'mkosi is required; see README.md' >&2
+  exit 1
+fi
+actual="$(mkosi --version | head -n 1)"
+if [[ "$actual" != "$expected" ]]; then
+  echo "expected $expected; found $actual" >&2
+  exit 1
+fi
+arch="${1:-}"
+case "$arch" in
+  x86-64|arm64) ;;
+  *) echo 'usage: scripts/build x86-64|arm64' >&2; exit 2 ;;
+esac
+exec mkosi --architecture="$arch" build

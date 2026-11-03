@@ -1,0 +1,7 @@
+# Device-specific ECP builds
+
+This directory is reserved for device manifests and the source files they name. The current x86-64 image remains the supported build target; no phone image or kernel RPM is produced from this directory yet.
+
+After the x86-64 image boots and its storage layout is validated, add one directory per device, for example `devices/rosy/`. Its future `device.yaml` should identify the architecture, a pinned kernel source commit, patch hashes, config fragments, firmware package sources and licenses, boot requirements, partition constraints, and the matching mkosi override. Device-specific RPM specs and patches should live beside that manifest, with reviewable source URLs and checksums. Keep binary firmware, signing keys, and local credentials out of Git.
+
+For a postmarketOS-derived kernel, first inspect its exact source and patch licenses, upstream branch, defconfig, boot image format, device tree, firmware dependencies, and Rocky 10 userspace compatibility. Package one kernel manually as a Rocky-compatible RPM in an isolated build, then consider a generator for the repetitive spec metadata. The manifest should select inputs; it should not claim compatibility or silently download unverified code. A device only becomes a build target after the kernel RPM installs, the systemd-boot or device-specific boot path is established, and boot, display, input, networking, storage, suspend, and recovery pass on hardware.

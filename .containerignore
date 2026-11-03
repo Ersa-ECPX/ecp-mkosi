@@ -1,0 +1,14 @@
+.git
+.agents
+.aws
+.codex
+.venv
+mkosi.output
+mkosi.cache
+mkosi.builddir
+mkosi.pkgcache
+mkosi.tools
+*.raw
+*.qcow2
+*.iso
+*.tar
