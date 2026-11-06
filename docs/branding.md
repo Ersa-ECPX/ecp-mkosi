@@ -23,4 +23,6 @@ GNOME's own code (read from `GNOME/gnome-control-center` and `GNOME/gnome-initia
 
 Wallpaper: `branding/wallpaper-light.svg` and `wallpaper-dark.svg` (the mark on a soft gradient) are rendered at 3840x2160 by `scripts/build-branding` into `/usr/share/backgrounds/ersa/`, listed for Settings through `gnome-background-properties/ersa.xml`, and set as the default (light, dark and lock screen) by `90_ersa-wallpaper.gschema.override`. Not yet seen in a booted image.
 
+GNOME's own wallpapers (`gnome-backgrounds`) are installed beside them.
+
 Not yet replaced: other openSUSE logo files, and `/etc/os-release` compatibility files. None of this has been visually verified in a booted image. This replaces the earlier Rocky scheme, which patched `fedora-logo*` file names.

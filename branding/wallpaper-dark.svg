@@ -1,18 +1,14 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="3840" height="2160" viewBox="0 0 3840 2160">
-  <!-- Ersa wallpaper, dark: the default wallpaper in the dark style. Rendered by scripts/build-branding. -->
+  <!-- Ersa wallpaper, dark style: soft colour fields (radial gradients, so no filters and no hard edges in any
+       renderer), faint rings echoing the mark's circle, and a small mark. Rendered by scripts/build-branding. -->
   <defs>
-    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
-      <stop offset="0" stop-color="#0e1513"/>
-      <stop offset="1" stop-color="#26342f"/>
-    </linearGradient>
-    <radialGradient id="glow" cx="0.5" cy="0.5" r="0.55">
-      <stop offset="0" stop-color="#9db0a9" stop-opacity="0.2"/>
-      <stop offset="1" stop-color="#9db0a9" stop-opacity="0"/>
-    </radialGradient>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#06110e"/><stop offset="0.55" stop-color="#0c2b24"/><stop offset="1" stop-color="#103d33"/></linearGradient>
+    <radialGradient id="b0" cx="3050" cy="520" r="1500" gradientUnits="userSpaceOnUse"><stop offset="0" stop-color="#1fb58f" stop-opacity="0.62"/><stop offset="0.55" stop-color="#1fb58f" stop-opacity="0.279"/><stop offset="1" stop-color="#1fb58f" stop-opacity="0"/></radialGradient><radialGradient id="b1" cx="620" cy="1750" r="1650" gradientUnits="userSpaceOnUse"><stop offset="0" stop-color="#2f7d6a" stop-opacity="0.75"/><stop offset="0.55" stop-color="#2f7d6a" stop-opacity="0.338"/><stop offset="1" stop-color="#2f7d6a" stop-opacity="0"/></radialGradient><radialGradient id="b2" cx="3350" cy="1750" r="1200" gradientUnits="userSpaceOnUse"><stop offset="0" stop-color="#2a86b4" stop-opacity="0.5"/><stop offset="0.55" stop-color="#2a86b4" stop-opacity="0.225"/><stop offset="1" stop-color="#2a86b4" stop-opacity="0"/></radialGradient><radialGradient id="b3" cx="1450" cy="260" r="900" gradientUnits="userSpaceOnUse"><stop offset="0" stop-color="#4fd1b0" stop-opacity="0.28"/><stop offset="0.55" stop-color="#4fd1b0" stop-opacity="0.126"/><stop offset="1" stop-color="#4fd1b0" stop-opacity="0"/></radialGradient><radialGradient id="b4" cx="2000" cy="1250" r="1100" gradientUnits="userSpaceOnUse"><stop offset="0" stop-color="#0f6f5c" stop-opacity="0.55"/><stop offset="0.55" stop-color="#0f6f5c" stop-opacity="0.248"/><stop offset="1" stop-color="#0f6f5c" stop-opacity="0"/></radialGradient>
   </defs>
   <rect width="3840" height="2160" fill="url(#bg)"/>
-  <rect width="3840" height="2160" fill="url(#glow)"/>
-  <g transform="translate(1614.1 776.4) scale(4.6)" fill="none" opacity="0.92">
+  <rect width="3840" height="2160" fill="url(#b0)"/><rect width="3840" height="2160" fill="url(#b1)"/><rect width="3840" height="2160" fill="url(#b2)"/><rect width="3840" height="2160" fill="url(#b3)"/><rect width="3840" height="2160" fill="url(#b4)"/>
+  <g><circle cx="1920" cy="1080" r="380" fill="none" stroke="rgba(255,255,255,0.055)" stroke-width="3"/><circle cx="1920" cy="1080" r="640" fill="none" stroke="rgba(255,255,255,0.055)" stroke-width="3"/><circle cx="1920" cy="1080" r="900" fill="none" stroke="rgba(255,255,255,0.055)" stroke-width="3"/><circle cx="1920" cy="1080" r="1160" fill="none" stroke="rgba(255,255,255,0.055)" stroke-width="3"/><circle cx="1920" cy="1080" r="1420" fill="none" stroke="rgba(255,255,255,0.055)" stroke-width="3"/><circle cx="1920" cy="1080" r="1680" fill="none" stroke="rgba(255,255,255,0.055)" stroke-width="3"/><circle cx="1920" cy="1080" r="1940" fill="none" stroke="rgba(255,255,255,0.055)" stroke-width="3"/><circle cx="1920" cy="1080" r="2200" fill="none" stroke="rgba(255,255,255,0.055)" stroke-width="3"/></g>
+  <g transform="translate(1747.1 908.4) scale(2.6)" fill="none" opacity="0.92">
     <g stroke="#f1f5f3" stroke-width="10" stroke-linecap="butt">
       <circle cx="49" cy="49" r="30"/>
       <path d="M49 19H113M27.7868 70.2132L74 116.4264"/>

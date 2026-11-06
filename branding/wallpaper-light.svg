@@ -1,22 +1,18 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="3840" height="2160" viewBox="0 0 3840 2160">
-  <!-- Ersa wallpaper, light: the default wallpaper in the light style. Rendered by scripts/build-branding. -->
+  <!-- Ersa wallpaper, light style: soft colour fields (radial gradients, so no filters and no hard edges in any
+       renderer), faint rings echoing the mark's circle, and a small mark. Rendered by scripts/build-branding. -->
   <defs>
-    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
-      <stop offset="0" stop-color="#f6f9f7"/>
-      <stop offset="1" stop-color="#d9e3de"/>
-    </linearGradient>
-    <radialGradient id="glow" cx="0.5" cy="0.5" r="0.55">
-      <stop offset="0" stop-color="#ffffff" stop-opacity="0.7"/>
-      <stop offset="1" stop-color="#ffffff" stop-opacity="0"/>
-    </radialGradient>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#f6fbf9"/><stop offset="0.55" stop-color="#dff1ea"/><stop offset="1" stop-color="#c7e6db"/></linearGradient>
+    <radialGradient id="b0" cx="3050" cy="520" r="1500" gradientUnits="userSpaceOnUse"><stop offset="0" stop-color="#7fd6bb" stop-opacity="0.85"/><stop offset="0.55" stop-color="#7fd6bb" stop-opacity="0.383"/><stop offset="1" stop-color="#7fd6bb" stop-opacity="0"/></radialGradient><radialGradient id="b1" cx="620" cy="1750" r="1650" gradientUnits="userSpaceOnUse"><stop offset="0" stop-color="#a8e6cf" stop-opacity="0.95"/><stop offset="0.55" stop-color="#a8e6cf" stop-opacity="0.427"/><stop offset="1" stop-color="#a8e6cf" stop-opacity="0"/></radialGradient><radialGradient id="b2" cx="3350" cy="1750" r="1200" gradientUnits="userSpaceOnUse"><stop offset="0" stop-color="#9fd3ee" stop-opacity="0.8"/><stop offset="0.55" stop-color="#9fd3ee" stop-opacity="0.360"/><stop offset="1" stop-color="#9fd3ee" stop-opacity="0"/></radialGradient><radialGradient id="b3" cx="1450" cy="260" r="900" gradientUnits="userSpaceOnUse"><stop offset="0" stop-color="#ffd9c7" stop-opacity="0.8"/><stop offset="0.55" stop-color="#ffd9c7" stop-opacity="0.360"/><stop offset="1" stop-color="#ffd9c7" stop-opacity="0"/></radialGradient><radialGradient id="b4" cx="2000" cy="1250" r="1100" gradientUnits="userSpaceOnUse"><stop offset="0" stop-color="#bfeed9" stop-opacity="0.8"/><stop offset="0.55" stop-color="#bfeed9" stop-opacity="0.360"/><stop offset="1" stop-color="#bfeed9" stop-opacity="0"/></radialGradient>
   </defs>
   <rect width="3840" height="2160" fill="url(#bg)"/>
-  <rect width="3840" height="2160" fill="url(#glow)"/>
-  <g transform="translate(1614.1 776.4) scale(4.6)" fill="none" opacity="0.88">
-    <g stroke="#26342f" stroke-width="10" stroke-linecap="butt">
+  <rect width="3840" height="2160" fill="url(#b0)"/><rect width="3840" height="2160" fill="url(#b1)"/><rect width="3840" height="2160" fill="url(#b2)"/><rect width="3840" height="2160" fill="url(#b3)"/><rect width="3840" height="2160" fill="url(#b4)"/>
+  <g><circle cx="1920" cy="1080" r="380" fill="none" stroke="rgba(20,70,58,0.06)" stroke-width="3"/><circle cx="1920" cy="1080" r="640" fill="none" stroke="rgba(20,70,58,0.06)" stroke-width="3"/><circle cx="1920" cy="1080" r="900" fill="none" stroke="rgba(20,70,58,0.06)" stroke-width="3"/><circle cx="1920" cy="1080" r="1160" fill="none" stroke="rgba(20,70,58,0.06)" stroke-width="3"/><circle cx="1920" cy="1080" r="1420" fill="none" stroke="rgba(20,70,58,0.06)" stroke-width="3"/><circle cx="1920" cy="1080" r="1680" fill="none" stroke="rgba(20,70,58,0.06)" stroke-width="3"/><circle cx="1920" cy="1080" r="1940" fill="none" stroke="rgba(20,70,58,0.06)" stroke-width="3"/><circle cx="1920" cy="1080" r="2200" fill="none" stroke="rgba(20,70,58,0.06)" stroke-width="3"/></g>
+  <g transform="translate(1747.1 908.4) scale(2.6)" fill="none" opacity="0.88">
+    <g stroke="#1f4a3f" stroke-width="10" stroke-linecap="butt">
       <circle cx="49" cy="49" r="30"/>
       <path d="M49 19H113M27.7868 70.2132L74 116.4264"/>
     </g>
-    <path d="M63.8492 34.1508A21 21 0 0 1 34.1508 63.8492Z" fill="#7f948c"/>
+    <path d="M63.8492 34.1508A21 21 0 0 1 34.1508 63.8492Z" fill="#6fa597"/>
   </g>
 </svg>

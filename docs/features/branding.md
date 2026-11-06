@@ -26,9 +26,16 @@ text, package descriptions) says "Ersa Compute Platform", never "ECP OS". A test
 
 ## Wallpapers
 
-Two generated wallpapers (the mark on a soft gradient, light and dark) are the default for the light style, the dark
-style and the lock screen, and are listed in Settings under "Ersa". They are placeholders by design: the plan is
-photographic wallpapers with a smaller logo overlay, which is not done yet.
+Two generated wallpapers, light and dark, are the default for the light style, the dark style and the lock screen, and
+are listed in Settings under "Ersa". They are made of soft colour fields (radial gradients: deep green with teal and
+a blue corner in the dark one; mint with a peach hint and sky blue in the light one), faint rings echoing the circle of
+the mark, and a small mark in the middle. GNOME's own wallpapers (the `gnome-backgrounds` package, about 25 of them) are
+installed too and appear in Settings beside them, so there is plenty to choose from. An earlier version, a flat gradient
+with a large mark, looked dull and is gone.
+
+Photographic wallpapers from Unsplash were considered and not used: Unsplash's licence allows free use and modification
+but says nothing about bundling photos in an operating system, and picking good photos is a matter of taste. They could be
+added later, with credit to each photographer, once someone has chosen them.
 
 ## Limits and open items
 
