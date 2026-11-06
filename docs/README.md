@@ -5,6 +5,9 @@ with GNOME. The root is a read-only image, updates replace whole images (A/B slo
 one management service, `foundationd`, is the only thing that changes the system. `foundation` (the command
 line) and the installer are clients of it.
 
+**As a wiki.** `scripts/build-wiki` turns all of these pages into one self-contained HTML file with a sidebar, search
+and light and dark themes (`docs/wiki/index.html`; open it in a browser, no server needed).
+
 ## Start here
 
 | If you want to... | Read |

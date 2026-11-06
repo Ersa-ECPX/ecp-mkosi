@@ -1,0 +1,458 @@
+#!/usr/bin/env python3
+"""Build a small, self-contained wiki (one HTML file) from the project's Markdown documentation.
+
+    scripts/build-wiki [OUTPUT]        default: docs/wiki/index.html
+
+The page has a sidebar, full-text search, light and dark themes and no external files, fonts or scripts, so it works
+from a file:// URL, a USB stick or any static host. It is generated: edit the Markdown under docs/ (and
+foundation/README.md) and run this again.
+
+What is included, in this order: docs/README.md (Overview), docs/features/*.md in the order the overview lists them,
+then the design documents and the developer guide. Links between included pages become in-page links; a link to
+anything else (a source file, say) is shown as plain text so nothing is left dangling.
+
+The Markdown converter handles exactly what these documents use (headings, paragraphs, fenced code, tables whose cells
+may hold `|` inside code, nested lists, emphasis, code spans, links, rules) and escapes all other HTML.
+"""
+
+import datetime
+import html
+import json
+import os
+import posixpath
+import re
+import subprocess
+import sys
+
+ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+DESIGN = ["architecture", "foundationd", "installer", "provisioning", "branding", "ota-hosting", "ota-test"]
+
+
+# -- Markdown ----------------------------------------------------------------------------------
+
+LIST_ITEM = re.compile(r"^(\s*)([-*]|\d+\.)\s+(.*)$")
+TABLE_SEPARATOR = re.compile(r"^\s*\|?\s*:?-{2,}:?\s*(\|\s*:?-{2,}:?\s*)*\|?\s*$")
+
+
+def slug(text):
+    text = re.sub(r"<[^>]+>|[`*_]", "", text).lower()
+    text = re.sub(r"[^\w\s-]", "", text)
+    return re.sub(r"\s+", "-", text.strip()) or "section"
+
+
+class Converter:
+    """Markdown to HTML for one page. `resolve(href)` maps a link target to (href, is_page) or None."""
+
+    def __init__(self, resolve):
+        self.resolve = resolve
+        self.headings, self.title, self.used = [], "", {}
+
+    # inline
+    def inline(self, text):
+        codes = []
+
+        def stash(match):
+            codes.append(match.group(2))
+            return f"\x00{len(codes) - 1}\x00"
+        text = re.sub(r"(`+)(.+?)\1", stash, text)
+        text = html.escape(text, quote=False)
+        text = re.sub(r"\[([^\]]+)\]\(([^)\s]+)\)", self._link, text)
+        text = re.sub(r"\*\*(.+?)\*\*", r"<strong>\1</strong>", text)
+        text = re.sub(r"(?<![\w*])\*(?!\s)(.+?)(?<!\s)\*(?![\w*])", r"<em>\1</em>", text)
+        return re.sub(r"\x00(\d+)\x00", lambda m: "<code>" + html.escape(codes[int(m.group(1))], quote=False) + "</code>", text)
+
+    def _link(self, match):
+        label, target = match.group(1), html.unescape(match.group(2))
+        if re.match(r"^[a-z][a-z0-9+.-]*:", target):                  # an absolute URL
+            return f'<a href="{html.escape(target)}" rel="noopener">{label}</a>'
+        resolved = self.resolve(target)
+        if resolved is None:
+            return f'<span class="filelink" title="{html.escape(target)}">{label}</span>'
+        return f'<a href="{html.escape(resolved)}">{label}</a>'
+
+    # blocks
+    def convert(self, text):
+        lines = text.replace("\r\n", "\n").split("\n")
+        return self.blocks(lines)
+
+    def heading_id(self, title, explicit=None):
+        base = explicit or slug(title)
+        count = self.used.get(base, 0)
+        self.used[base] = count + 1
+        return base if count == 0 else f"{base}-{count}"
+
+    def blocks(self, lines):
+        out, i, n = [], 0, len(lines)
+        while i < n:
+            line = lines[i]
+            if not line.strip():
+                i += 1
+            elif line.startswith("```"):
+                language, i = line[3:].strip(), i + 1
+                body = []
+                while i < n and not lines[i].startswith("```"):
+                    body.append(lines[i])
+                    i += 1
+                i += 1
+                out.append(f'<pre><button class="copy" type="button">Copy</button><code>{html.escape(chr(10).join(body), quote=False)}</code></pre>')
+            elif re.match(r"^#{1,6}\s", line):
+                level = len(line) - len(line.lstrip("#"))
+                raw = line[level:].strip()
+                anchor = re.search(r'<a id="([^"]+)"></a>', raw)
+                raw = re.sub(r'<a id="[^"]+"></a>', "", raw).strip()
+                ident = self.heading_id(raw, anchor.group(1) if anchor else None)
+                if level == 1 and not self.title:
+                    self.title = re.sub(r"[`*]", "", raw)
+                self.headings.append((level, re.sub(r"[`*]", "", raw), ident))
+                out.append(f'<h{level} id="{ident}">{self.inline(raw)}</h{level}>')
+                i += 1
+            elif re.match(r"^---+\s*$", line):
+                out.append("<hr>")
+                i += 1
+            elif line.lstrip().startswith("|") and i + 1 < n and TABLE_SEPARATOR.match(lines[i + 1]):
+                html_table, i = self.table(lines, i)
+                out.append(html_table)
+            elif LIST_ITEM.match(line):
+                html_list, i = self.list(lines, i)
+                out.append(html_list)
+            else:
+                paragraph = [line.strip()]
+                i += 1
+                while i < n and lines[i].strip() and not self._starts_block(lines, i):
+                    paragraph.append(lines[i].strip())
+                    i += 1
+                out.append(f"<p>{self.inline(' '.join(paragraph))}</p>")
+        return "\n".join(out)
+
+    @staticmethod
+    def _starts_block(lines, i):
+        line = lines[i]
+        return (line.startswith("```") or re.match(r"^#{1,6}\s", line) or LIST_ITEM.match(line)
+                or re.match(r"^---+\s*$", line)
+                or (line.lstrip().startswith("|") and i + 1 < len(lines) and TABLE_SEPARATOR.match(lines[i + 1])))
+
+    @staticmethod
+    def split_row(line):
+        """Cells of a table row; a `|` inside a code span or escaped as \\| belongs to the cell."""
+        line = line.strip()
+        if line.startswith("|"):
+            line = line[1:]
+        if line.endswith("|") and not line.endswith("\\|"):
+            line = line[:-1]
+        cells, current, in_code, i = [], [], False, 0
+        while i < len(line):
+            char = line[i]
+            if char == "\\" and i + 1 < len(line) and line[i + 1] == "|":
+                current.append("|")
+                i += 2
+                continue
+            if char == "`":
+                in_code = not in_code
+            if char == "|" and not in_code:
+                cells.append("".join(current).strip())
+                current = []
+            else:
+                current.append(char)
+            i += 1
+        cells.append("".join(current).strip())
+        return cells
+
+    def table(self, lines, i):
+        header = self.split_row(lines[i])
+        alignments = []
+        for cell in self.split_row(lines[i + 1]):
+            left, right = cell.startswith(":"), cell.endswith(":")
+            alignments.append("center" if left and right else "right" if right else "left" if left else "")
+        i += 2
+        rows = []
+        while i < len(lines) and lines[i].strip().startswith("|"):
+            rows.append(self.split_row(lines[i]))
+            i += 1
+
+        def cell(tag, text, column):
+            style = f' style="text-align:{alignments[column]}"' if column < len(alignments) and alignments[column] else ""
+            return f"<{tag}{style}>{self.inline(text)}</{tag}>"
+        head = "".join(cell("th", text, c) for c, text in enumerate(header))
+        body = "".join("<tr>" + "".join(cell("td", text, c) for c, text in enumerate(row)) + "</tr>" for row in rows)
+        return f'<div class="table"><table><thead><tr>{head}</tr></thead><tbody>{body}</tbody></table></div>', i
+
+    def list(self, lines, i):
+        first = LIST_ITEM.match(lines[i])
+        indent = len(first.group(1))
+        ordered = first.group(2)[0].isdigit()
+        items = []
+        while i < len(lines):
+            match = LIST_ITEM.match(lines[i])
+            if not match or len(match.group(1)) != indent:
+                break
+            width = len(match.group(1)) + len(match.group(2)) + 1
+            body = [match.group(3)]
+            i += 1
+            while i < len(lines):
+                line = lines[i]
+                if not line.strip():
+                    following = next((l for l in lines[i + 1:i + 3] if l.strip()), "")
+                    if following.startswith(" " * (width + 1)) or (following and LIST_ITEM.match(following)
+                                                                   and len(LIST_ITEM.match(following).group(1)) > indent):
+                        body.append("")
+                        i += 1
+                        continue
+                    break
+                if len(line) - len(line.lstrip()) > indent and not (LIST_ITEM.match(line) and len(LIST_ITEM.match(line).group(1)) == indent):
+                    body.append(line[min(width, len(line) - len(line.lstrip())):] if line.startswith(" " * width) else line.strip())
+                    i += 1
+                    continue
+                break
+            items.append(body)
+        tag = "ol" if ordered else "ul"
+        rendered = []
+        for body in items:
+            split = next((k for k, l in enumerate(body) if k and LIST_ITEM.match(l)), len(body))
+            text = " ".join(l.strip() for l in body[:split] if l.strip())
+            nested = self.blocks(body[split:]) if split < len(body) else ""
+            rendered.append(f"<li>{self.inline(text)}{nested}</li>")
+        return f"<{tag}>" + "".join(rendered) + f"</{tag}>", i
+
+
+# -- the site ----------------------------------------------------------------------------------
+
+def read(path):
+    with open(os.path.join(ROOT, path), encoding="utf-8") as handle:
+        return handle.read()
+
+
+def page_list():
+    """[(id, source path, group)] in reading order."""
+    pages = [("overview", "docs/README.md", "Start")]
+    overview = read("docs/README.md")
+    table = overview.split("\n## Features", 1)[1].split("\n## ", 1)[0] if "\n## Features" in overview else overview
+    listed = [m.group(1) for m in re.finditer(r"\(features/([a-z0-9-]+)\.md\)", table)]
+    on_disk = sorted(f[:-3] for f in os.listdir(os.path.join(ROOT, "docs/features")) if f.endswith(".md"))
+    order = [n for n in dict.fromkeys(listed) if n in on_disk] + [n for n in on_disk if n not in listed]
+    pages += [(f"features/{n}", f"docs/features/{n}.md", "Features") for n in order]
+    pages += [(n, f"docs/{n}.md", "Design") for n in DESIGN if os.path.exists(os.path.join(ROOT, f"docs/{n}.md"))]
+    pages.append(("developer-guide", "foundation/README.md", "Developer guide"))
+    return pages
+
+
+def badge(markdown):
+    """(label, class) from a page's leading **Status:** line, or None."""
+    match = re.search(r"^\*\*Status:?(.+?)(?:\n\n|\Z)", markdown, re.S | re.M)
+    if not match:
+        return None
+    text = " ".join(match.group(1).replace("*", " ").split()).lstrip(": ").lower()
+    if "scaffolding only" in text or text.startswith("not "):
+        return "Not usable yet", "bad"
+    if text.startswith(("partly", "partial")):
+        return "Partly built", "mid"
+    if text.startswith(("built", "implemented")) or re.search(r"\bbuilt\b", text[:140]):
+        return "Built", "ok"
+    return None
+
+
+def plain(markdown):
+    text = re.sub(r"```.*?```", lambda m: m.group(0).replace("```", " "), markdown, flags=re.S)
+    text = re.sub(r"\[([^\]]+)\]\([^)]*\)", r"\1", text)
+    text = re.sub(r"[`*#|>]", " ", text)
+    return re.sub(r"\s+", " ", text).strip()
+
+
+def build(output=None, pages=None):
+    pages = pages or page_list()
+    by_path = {os.path.normpath(os.path.join(ROOT, src)): pid for pid, src, _g in pages}
+    sections, nav, index = [], {}, []
+    problems = []
+    for pid, src, group in pages:
+        directory = posixpath.dirname(src)
+        markdown = read(src)
+
+        def resolve(target, directory=directory, src=src):
+            path, _hash, anchor = target.partition("#")
+            if not path:
+                return f"#/{pid_of[src]}:{anchor}" if anchor else f"#/{pid_of[src]}"
+            absolute = os.path.normpath(os.path.join(ROOT, directory, path))
+            if absolute in by_path:
+                return f"#/{by_path[absolute]}" + (f":{anchor}" if anchor else "")
+            problems.append((src, target))
+            return None
+        pid_of = {s: p for p, s, _g in pages}
+        converter = Converter(resolve)
+        body = converter.convert(markdown)
+        status = badge(markdown)
+        label = f'<span class="badge {status[1]}">{status[0]}</span>' if status else ""
+        title = converter.title or pid
+        sections.append(f'<section class="page" data-page="{pid}" data-title="{html.escape(title)}"><div class="meta">'
+                        f'{html.escape(group)} {label}<span class="src">{html.escape(src)}</span></div>'
+                        f'<article>{body}</article></section>')
+        nav.setdefault(group, []).append({"id": pid, "title": title, "badge": status[1] if status else ""})
+        index.append({"id": pid, "title": title, "group": group, "text": plain(markdown)})
+    commit = ""
+    try:
+        commit = subprocess.run(["git", "-C", ROOT, "log", "-1", "--format=%h %cd", "--date=short"], capture_output=True,
+                                text=True, timeout=10).stdout.strip()
+    except (OSError, subprocess.SubprocessError):
+        pass
+    generated = datetime.date.today().isoformat() + (f", from commit {commit}" if commit else "")
+    document = TEMPLATE.replace("{{SECTIONS}}", "\n".join(sections)).replace("{{NAV}}", json.dumps(nav)) \
+        .replace("{{INDEX}}", json.dumps(index).replace("</", "<\\/")).replace("{{GENERATED}}", html.escape(generated))
+    if output:
+        os.makedirs(os.path.dirname(os.path.abspath(output)), exist_ok=True)
+        with open(output, "w", encoding="utf-8") as handle:
+            handle.write(document)
+    return document, problems
+
+
+TEMPLATE = r"""<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Ersa Compute Platform wiki</title>
+<style>
+:root { --bg:#fbfcfb; --panel:#f1f4f2; --text:#1d2723; --dim:#5d6b65; --line:#dbe2de; --accent:#2f7d6a; --accent-bg:#e1f0ea;
+        --code:#eef2f0; --ok:#1f7a4d; --mid:#9a6a00; --bad:#b3261e; color-scheme: light; }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) { --bg:#141917; --panel:#1b221f; --text:#e3eae6;
+  --dim:#9aa8a1; --line:#2b3430; --accent:#6fc2a9; --accent-bg:#1f332c; --code:#212a26; --ok:#6fd49b; --mid:#e0b04a; --bad:#ff8a80; color-scheme: dark; } }
+:root[data-theme="dark"] { --bg:#141917; --panel:#1b221f; --text:#e3eae6; --dim:#9aa8a1; --line:#2b3430; --accent:#6fc2a9;
+  --accent-bg:#1f332c; --code:#212a26; --ok:#6fd49b; --mid:#e0b04a; --bad:#ff8a80; color-scheme: dark; }
+* { box-sizing: border-box; }
+html { scroll-padding-top: 1rem; }
+body { margin:0; background:var(--bg); color:var(--text); font:16px/1.6 system-ui, -apple-system, "Segoe UI", Roboto, "Noto Sans", sans-serif; }
+.layout { display:grid; grid-template-columns: 19rem minmax(0,1fr); min-height:100vh; }
+aside { position:sticky; top:0; height:100vh; overflow:auto; background:var(--panel); border-right:1px solid var(--line); padding:1rem 1rem 2rem; }
+aside h1 { font-size:1.05rem; margin:0 0 .2rem; } aside h1 a { color:var(--text); text-decoration:none; }
+aside .tag { color:var(--dim); font-size:.8rem; margin-bottom:.8rem; }
+.tools { display:flex; gap:.4rem; margin:.6rem 0; }
+input[type=search] { flex:1; min-width:0; padding:.5rem .65rem; border:1px solid var(--line); border-radius:.5rem; background:var(--bg); color:var(--text); font:inherit; }
+button.theme, button.menu { border:1px solid var(--line); background:var(--bg); color:var(--text); border-radius:.5rem; padding:.4rem .6rem; font:inherit; cursor:pointer; }
+nav h2 { font-size:.72rem; letter-spacing:.08em; text-transform:uppercase; color:var(--dim); margin:1.2rem 0 .3rem; }
+nav a { display:flex; align-items:center; gap:.4rem; padding:.28rem .55rem; border-radius:.4rem; color:var(--text); text-decoration:none; font-size:.93rem; }
+nav a:hover { background:var(--accent-bg); } nav a.current { background:var(--accent-bg); color:var(--accent); font-weight:600; }
+.dot { width:.5rem; height:.5rem; border-radius:50%; flex:none; background:var(--line); }
+.dot.ok { background:var(--ok); } .dot.mid { background:var(--mid); } .dot.bad { background:var(--bad); }
+main { padding:2rem clamp(1rem,4vw,3.5rem) 4rem; } .wrap { max-width:50rem; margin:0 auto; }
+.meta { color:var(--dim); font-size:.82rem; margin-bottom:.4rem; display:flex; gap:.6rem; align-items:center; flex-wrap:wrap; }
+.meta .src { font-family:ui-monospace, monospace; margin-left:auto; }
+.badge { padding:.1rem .55rem; border-radius:99px; font-size:.75rem; font-weight:600; border:1px solid currentColor; }
+.badge.ok { color:var(--ok); } .badge.mid { color:var(--mid); } .badge.bad { color:var(--bad); }
+article h1 { font-size:2rem; line-height:1.2; margin:.2rem 0 1rem; } article h2 { margin:2.2rem 0 .6rem; padding-bottom:.3rem; border-bottom:1px solid var(--line); }
+article h3 { margin:1.6rem 0 .4rem; } article a { color:var(--accent); }
+article h1:hover .anchor, article h2:hover .anchor, article h3:hover .anchor { opacity:1; }
+code { background:var(--code); padding:.12rem .35rem; border-radius:.3rem; font:.88em ui-monospace, SFMono-Regular, Menlo, monospace; }
+pre { position:relative; background:var(--code); border:1px solid var(--line); border-radius:.6rem; padding:.9rem 1rem; overflow:auto; }
+pre code { background:none; padding:0; font-size:.85rem; line-height:1.5; white-space:pre; }
+.copy { position:absolute; top:.4rem; right:.4rem; font:.72rem system-ui; border:1px solid var(--line); background:var(--bg); color:var(--dim); border-radius:.35rem; padding:.15rem .5rem; cursor:pointer; opacity:0; }
+pre:hover .copy, .copy:focus { opacity:1; }
+.table { overflow-x:auto; margin:1rem 0; } table { border-collapse:collapse; width:100%; font-size:.92rem; }
+th, td { border:1px solid var(--line); padding:.45rem .65rem; text-align:left; vertical-align:top; } th { background:var(--panel); }
+.filelink { border-bottom:1px dotted var(--dim); cursor:help; }
+.page { display:none; } .page.on { display:block; }
+.results { display:none; } .results.on { display:block; } .results a { display:block; padding:.7rem .9rem; margin:.5rem 0; border:1px solid var(--line); border-radius:.6rem; color:var(--text); text-decoration:none; }
+.results a:hover { border-color:var(--accent); } .results b { color:var(--accent); } .results small { display:block; color:var(--dim); margin-top:.2rem; }
+mark { background:var(--accent-bg); color:inherit; border-radius:.2rem; padding:0 .1rem; }
+footer { margin-top:3rem; color:var(--dim); font-size:.8rem; }
+button.menu { display:none; }
+@media (max-width: 52rem) { .layout { grid-template-columns:1fr; } aside { position:static; height:auto; display:none; } aside.open { display:block; }
+  button.menu { display:inline-block; position:sticky; top:.5rem; margin:.5rem; z-index:2; } }
+@media print { aside, button.menu, .copy { display:none; } .layout { display:block; } .page { display:block !important; page-break-after:always; } }
+</style>
+</head>
+<body>
+<button class="menu" type="button" aria-label="Contents">Contents</button>
+<div class="layout">
+<aside id="side">
+  <h1><a href="#/overview">Ersa Compute Platform</a></h1>
+  <div class="tag">Documentation wiki</div>
+  <div class="tools"><input id="q" type="search" placeholder="Search  ( / )" aria-label="Search the documentation" autocomplete="off">
+  <button class="theme" type="button" title="Switch theme" aria-label="Switch theme">Theme</button></div>
+  <nav id="nav"></nav>
+</aside>
+<main><div class="wrap">
+<div id="results" class="results"></div>
+<div id="pages">
+{{SECTIONS}}
+</div>
+<footer>Generated {{GENERATED}}. Edit the Markdown under <code>docs/</code> and run <code>scripts/build-wiki</code>.</footer>
+</div></main>
+</div>
+<noscript><style>.page{display:block!important}aside{display:none}</style></noscript>
+<script>
+const NAV = {{NAV}};
+const INDEX = {{INDEX}};
+const $ = (s, r = document) => r.querySelector(s);
+const pages = new Map([...document.querySelectorAll(".page")].map(p => [p.dataset.page, p]));
+const nav = $("#nav");
+for (const [group, items] of Object.entries(NAV)) {
+  const h = document.createElement("h2"); h.textContent = group; nav.append(h);
+  for (const it of items) {
+    const a = document.createElement("a"); a.href = "#/" + it.id; a.dataset.id = it.id;
+    a.innerHTML = '<span class="dot ' + it.badge + '"></span>'; a.append(it.title.replace(/^Ersa Compute Platform documentation$/, "Overview")); nav.append(a);
+  }
+}
+for (const h of document.querySelectorAll("article h1, article h2, article h3")) {
+  const a = document.createElement("a"); a.className = "anchor"; a.href = "#"; a.textContent = " #"; a.style.cssText = "opacity:0;text-decoration:none;font-weight:400";
+  a.addEventListener("click", e => { e.preventDefault(); const page = h.closest(".page").dataset.page; location.hash = "#/" + page + ":" + h.id; }); h.append(a);
+}
+for (const b of document.querySelectorAll(".copy")) b.addEventListener("click", () => {
+  navigator.clipboard?.writeText(b.nextElementSibling.textContent).then(() => { b.textContent = "Copied"; setTimeout(() => b.textContent = "Copy", 1200); });
+});
+function show() {
+  const [id, anchor] = decodeURIComponent(location.hash.replace(/^#\/?/, "")).split(":");
+  const key = pages.has(id) ? id : "overview";
+  $("#q").value = ""; $("#results").classList.remove("on"); $("#pages").style.display = "";
+  for (const [k, p] of pages) p.classList.toggle("on", k === key);
+  for (const a of nav.querySelectorAll("a")) a.classList.toggle("current", a.dataset.id === key);
+  document.title = pages.get(key).dataset.title + " | Ersa Compute Platform";
+  $("#side").classList.remove("open");
+  const target = anchor && document.getElementById(anchor);
+  if (target) target.scrollIntoView(); else window.scrollTo(0, 0);
+}
+addEventListener("hashchange", show); show();
+const esc = s => s.replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+function search(q) {
+  const terms = q.toLowerCase().split(/\s+/).filter(Boolean), box = $("#results");
+  if (!terms.length) { show(); return; }
+  const hits = [];
+  for (const d of INDEX) {
+    const low = d.text.toLowerCase(), t = d.title.toLowerCase();
+    if (!terms.every(w => low.includes(w) || t.includes(w))) continue;
+    const at = low.indexOf(terms[0]);
+    let snip = at < 0 ? d.text.slice(0, 160) : d.text.slice(Math.max(0, at - 70), at + 120);
+    snip = esc(snip); for (const w of terms) snip = snip.replace(new RegExp("(" + w.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") + ")", "ig"), "<mark>$1</mark>");
+    hits.push({ d, score: (terms.some(w => t.includes(w)) ? 10 : 0) + terms.reduce((n, w) => n + (low.split(w).length - 1), 0), snip });
+  }
+  hits.sort((a, b) => b.score - a.score);
+  box.innerHTML = "<h2>" + hits.length + " result" + (hits.length === 1 ? "" : "s") + " for &ldquo;" + esc(q) + "&rdquo;</h2>" +
+    hits.slice(0, 30).map(h => '<a href="#/' + h.d.id + '"><b>' + esc(h.d.title) + "</b><small>" + h.d.group + "</small><small>&hellip;" + h.snip + "&hellip;</small></a>").join("");
+  box.classList.add("on"); $("#pages").style.display = "none";
+}
+$("#q").addEventListener("input", e => search(e.target.value));
+addEventListener("keydown", e => {
+  if (e.key === "/" && document.activeElement.tagName !== "INPUT") { e.preventDefault(); $("#q").focus(); }
+  if (e.key === "Escape") { $("#q").value = ""; show(); $("#q").blur(); }
+});
+$(".menu").addEventListener("click", () => $("#side").classList.toggle("open"));
+const root = document.documentElement, saved = (() => { try { return localStorage.getItem("theme"); } catch (e) { return null; } })();
+if (saved) root.dataset.theme = saved;
+$(".theme").addEventListener("click", () => {
+  const dark = root.dataset.theme ? root.dataset.theme === "dark" : matchMedia("(prefers-color-scheme: dark)").matches;
+  root.dataset.theme = dark ? "light" : "dark"; try { localStorage.setItem("theme", root.dataset.theme); } catch (e) {}
+});
+</script>
+</body>
+</html>
+"""
+
+
+def main(argv):
+    output = argv[1] if len(argv) > 1 else os.path.join(ROOT, "docs/wiki/index.html")
+    document, problems = build(output)
+    for source, target in problems:
+        print(f"note: {source}: link to {target} is not part of the wiki; shown as plain text", file=sys.stderr)
+    pages = len(re.findall(r'class="page"', document))
+    print(f"wrote {output} ({pages} pages, {len(document) // 1024} KiB)")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv))

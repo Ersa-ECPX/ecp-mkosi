@@ -30,6 +30,7 @@ space (default `/tmp/ecp-work`, which needs about 15 GiB free).
 | `publish-update`, `serve-update`, `ota-test-definitions` | the update test scaffolding ([updates](updates.md)) |
 | `qemu-smoke` | a boot smoke test in QEMU |
 | `test-bundles-container` | run the repository and bundle code against the live repositories in a container |
+| `build-wiki` | turn the documentation into one self-contained HTML wiki page (`docs/wiki/index.html`) with search and light/dark themes |
 | `clean` | remove outputs and scratch space |
 
 **Order for the installer:** `scripts/build-foundation-package`, then `scripts/build x86-64 --profile installer`. Packages
