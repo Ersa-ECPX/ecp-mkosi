@@ -1,8 +1,8 @@
 name: Build x86_64 image
 
+# Manual only. Images are built and released from a developer machine (scripts/release); this workflow was written for
+# the Rocky 10 base and has not been brought up to date, so it must not run on every push.
 on:
-  push:
-  pull_request:
   workflow_dispatch:
 
 permissions:
