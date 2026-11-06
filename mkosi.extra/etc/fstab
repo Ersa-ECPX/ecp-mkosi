@@ -1,3 +1,2 @@
-LABEL=ECP-ETC /etc ext4 defaults 0 2
-LABEL=ECP-VAR /var ext4 defaults 0 2
-LABEL=ECP-HOME /home ext4 defaults 0 2
+LABEL=ECP-DATA /var btrfs subvol=var,x-initrd.mount 0 0
+LABEL=ECP-DATA /home btrfs subvol=home 0 0

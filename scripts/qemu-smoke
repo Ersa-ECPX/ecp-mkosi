@@ -1,0 +1,206 @@
+#!/usr/bin/env python3
+"""Boot an image in QEMU and check that it came up healthy. No login, no display, no changes to the image.
+
+    scripts/qemu-smoke [IMAGE]            default: mkosi.output/ecp_*.raw (the newest)
+
+How it works: the image is attached with snapshot=on, so every write goes to a throwaway overlay and
+the file is never modified. A small diagnostics service is injected through an SMBIOS Type 11 string
+(a systemd credential, systemd >= 256) and started by the kernel command line (`systemd.wants=`, added
+through systemd-stub's SMBIOS option, systemd >= 254; both need Secure Boot off). The service prints
+`key=value` lines between markers on the serial console and powers the machine off; this script reads
+them from a log file and checks them. Exit status 0 means every check passed.
+
+Needs: qemu-system-x86_64, OVMF firmware. Uses KVM when /dev/kvm is usable (fast), otherwise TCG
+(much slower: raise --timeout).
+"""
+
+import argparse
+import base64
+import glob
+import os
+import re
+import shutil
+import subprocess
+import sys
+import tempfile
+import time
+
+OVMF_CODE = ("/usr/share/edk2/x64/OVMF_CODE.4m.fd", "/usr/share/OVMF/OVMF_CODE_4M.fd",
+             "/usr/share/edk2/ovmf/OVMF_CODE.fd", "/usr/share/OVMF/OVMF_CODE.fd")
+OVMF_VARS = ("/usr/share/edk2/x64/OVMF_VARS.4m.fd", "/usr/share/OVMF/OVMF_VARS_4M.fd",
+             "/usr/share/edk2/ovmf/OVMF_VARS.fd", "/usr/share/OVMF/OVMF_VARS.fd")
+
+# One line of shell for ExecStart. Every `$` and `%` is doubled when the unit is written, because
+# systemd expands both in ExecStart. No single quotes inside: the whole thing is single-quoted.
+# Type=simple (set in unit_text) so this unit does not hold up startup: the boot assessment waits for
+# startup to finish, and ordering this unit after it would make each wait for the other. The script
+# waits for the system itself, then for the boot to be blessed, before it looks.
+PROBE = "; ".join([
+    'timeout 150 systemctl is-system-running --wait >/dev/null 2>&1',
+    'for i in $(seq 1 60); do foundation slot status 2>/dev/null | grep -q "good" && break; sleep 2; done',
+    'echo ECP-SMOKE-BEGIN',
+    'echo "kernel=$(uname -r)"',
+    'echo "failed_units=$(systemctl --failed --no-legend | wc -l)"',
+    'systemctl --failed --no-legend | cut -c1-80 | sed "s/^/failed_unit=/"',
+    'echo "enforce=$(getenforce 2>&1)"',
+    'echo "etc_label=$(ls -dZ /etc | cut -d" " -f1)"',
+    'echo "upper_label=$(ls -dZ /var/lib/ecp/etc/upper 2>&1 | cut -d" " -f1)"',
+    'echo "mount_etc=$(findmnt -n -o FSTYPE /etc 2>&1)"',
+    'echo "mount_var=$(findmnt -n -o FSTYPE,OPTIONS /var 2>&1 | cut -c1-90)"',
+    'echo "mount_home=$(findmnt -n -o FSTYPE,OPTIONS /home 2>&1 | cut -c1-90)"',
+    'echo "machine_id=$(cat /etc/machine-id 2>&1)"',
+    'echo "dbus_broker=$(systemctl is-active dbus-broker 2>&1)"',
+    'foundation status --json >/dev/null 2>&1; echo "foundation_status_rc=$?"',
+    'foundation slot status --json >/dev/null 2>&1; echo "foundation_slot_rc=$?"',
+    'echo "boot_assessment=$(foundation slot status 2>&1 | grep -i assessment | sed "s/  */ /g" | cut -c1-70)"',
+    'echo "firefox=$(firefox --version 2>&1 | head -1)"',
+    'echo "zoneinfo=$(ls /usr/share/zoneinfo 2>/dev/null | wc -l)"',
+    'echo "issue=$(head -1 /usr/lib/issue.d/10-openSUSE.issue 2>&1)"',
+    'echo "pretty_name=$(. /usr/lib/os-release; echo $PRETTY_NAME)"',
+    'echo "uptime_s=$(cut -d. -f1 /proc/uptime)"',
+    'echo "blessed_entries=$(ls /boot/EFI/Linux 2>&1 | tr "\n" " " | cut -c1-90)"',
+    'echo ECP-SMOKE-END',
+    'systemctl poweroff',
+])
+
+
+def unit_text():
+    escaped = PROBE.replace("%", "%%").replace("$", "$$")
+    return ("[Unit]\nDescription=Ersa Compute Platform smoke test\nAfter=multi-user.target\n\n"
+            # /dev/console follows the *last* console= on the kernel command line, which is tty0 (the
+            # screen), not the serial port; so write to the serial port explicitly.
+            "[Service]\nType=simple\nStandardOutput=tty\nStandardError=tty\nTTYPath=/dev/ttyS0\n"
+            "TTYReset=no\nTTYVHangup=no\n"
+            f"ExecStart=/bin/sh -c '{escaped}'\n")
+
+
+def first_existing(paths, what):
+    for path in paths:
+        if os.path.exists(path):
+            return path
+    sys.exit(f"cannot find {what}; looked in: {', '.join(paths)}")
+
+
+def run_vm(image, timeout, memory, cpus, log_path):
+    qemu = shutil.which("qemu-system-x86_64") or sys.exit("qemu-system-x86_64 is not installed")
+    code = first_existing(OVMF_CODE, "OVMF firmware")
+    vars_template = first_existing(OVMF_VARS, "OVMF variables template")
+    kvm = os.access("/dev/kvm", os.R_OK | os.W_OK)
+    with tempfile.TemporaryDirectory() as tmp:
+        vars_copy = os.path.join(tmp, "vars.fd")
+        shutil.copy(vars_template, vars_copy)
+        credential = base64.b64encode(unit_text().encode()).decode()
+        cmd = [
+            qemu, "-machine", "q35" + (",accel=kvm" if kvm else ""), "-cpu", "host" if kvm else "max",
+            "-m", str(memory), "-smp", str(cpus), "-no-reboot",
+            "-drive", f"if=pflash,format=raw,readonly=on,file={code}",
+            "-drive", f"if=pflash,format=raw,file={vars_copy}",
+            "-drive", f"file={image},format=raw,if=virtio,snapshot=on,cache=unsafe",
+            "-device", "virtio-rng-pci", "-display", "none", "-vga", "std", "-monitor", "none",
+            "-serial", f"file:{log_path}",
+            "-smbios", f"type=11,value=io.systemd.credential.binary:systemd.extra-unit.ecp-smoke.service={credential}",
+            "-smbios", "type=11,value=io.systemd.stub.kernel-cmdline-extra=systemd.wants=ecp-smoke.service",
+        ]
+        print(f"booting {os.path.basename(image)} ({'KVM' if kvm else 'TCG, slow'}), timeout {timeout}s", flush=True)
+        start = time.monotonic()
+        process = subprocess.Popen(cmd, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
+        try:
+            _out, err = process.communicate(timeout=timeout)
+        except subprocess.TimeoutExpired:
+            process.kill()
+            _out, err = process.communicate()
+            print(f"TIMEOUT after {timeout}s; the machine did not finish the smoke test", file=sys.stderr)
+        return time.monotonic() - start, err.decode(errors="replace").strip()
+
+
+def parse(log_path):
+    try:
+        with open(log_path, encoding="utf-8", errors="replace") as handle:
+            text = handle.read().replace("\r", "")
+    except OSError:
+        return None, ""
+    begin, end = text.find("ECP-SMOKE-BEGIN"), text.find("ECP-SMOKE-END")
+    if begin < 0 or end < 0:
+        return None, text
+    values, failed = {}, []
+    for line in text[begin:end].splitlines()[1:]:
+        match = re.match(r"^([a-z_]+)=(.*)$", line)
+        if match:
+            if match.group(1) == "failed_unit":
+                failed.append(match.group(2).strip())
+            else:
+                values[match.group(1)] = match.group(2).strip()
+    values["_failed_units"] = failed
+    return values, text
+
+
+CHECKS = [
+    ("no failed units", lambda v: v.get("failed_units") == "0", "failed_units"),
+    ("SELinux enforcing", lambda v: v.get("enforce") == "Enforcing", "enforce"),
+    ("/etc is labelled etc_t", lambda v: ":etc_t:" in v.get("etc_label", ""), "etc_label"),
+    ("overlay upper layer is etc_t", lambda v: ":etc_t:" in v.get("upper_label", ""), "upper_label"),
+    ("/etc is an overlay", lambda v: v.get("mount_etc") == "overlay", "mount_etc"),
+    ("/var is a btrfs subvolume", lambda v: v.get("mount_var", "").startswith("btrfs") and "subvol=/var" in v.get("mount_var", ""), "mount_var"),
+    ("/home is a btrfs subvolume", lambda v: v.get("mount_home", "").startswith("btrfs") and "subvol=/home" in v.get("mount_home", ""), "mount_home"),
+    ("machine-id is set", lambda v: re.fullmatch(r"[0-9a-f]{32}", v.get("machine_id", "")) is not None, "machine_id"),
+    ("dbus-broker is active", lambda v: v.get("dbus_broker") == "active", "dbus_broker"),
+    ("foundation status works", lambda v: v.get("foundation_status_rc") == "0", "foundation_status_rc"),
+    ("foundation slot status works", lambda v: v.get("foundation_slot_rc") == "0", "foundation_slot_rc"),
+    ("Firefox is installed", lambda v: v.get("firefox", "").startswith("Mozilla Firefox"), "firefox"),
+    ("time zone data is present", lambda v: v.get("zoneinfo", "0").isdigit() and int(v["zoneinfo"]) > 10, "zoneinfo"),
+    ("login banner is the platform's, not the distro's",
+     lambda v: "Ersa Compute Platform" in v.get("pretty_name", "") and "S{PRETTY_NAME}" in v.get("issue", "")
+     and "openSUSE" not in v.get("issue", ""), "pretty_name"),
+    ("this boot was blessed (marked good)", lambda v: "good" in v.get("boot_assessment", ""), "boot_assessment"),
+]
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
+    parser.add_argument("image", nargs="?", help="a raw disk image (default: the newest mkosi.output/ecp_*.raw)")
+    parser.add_argument("--timeout", type=int, default=600, help="seconds to wait for the machine (default 600)")
+    parser.add_argument("--memory", type=int, default=4096, help="MiB of RAM (default 4096)")
+    parser.add_argument("--cpus", type=int, default=2)
+    parser.add_argument("--keep-log", metavar="FILE", help="copy the whole serial log here")
+    args = parser.parse_args()
+
+    root = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..")
+    image = args.image
+    if not image:
+        candidates = [p for p in glob.glob(os.path.join(root, "mkosi.output", "ecp_*.raw")) if ".root-" not in p]
+        if not candidates:
+            sys.exit("no image found; build one with scripts/build x86-64, or pass a path")
+        image = max(candidates, key=os.path.getmtime)
+    image = os.path.realpath(image)
+
+    with tempfile.NamedTemporaryFile(suffix=".log", delete=False) as handle:
+        log_path = handle.name
+    seconds, qemu_err = run_vm(image, args.timeout, args.memory, args.cpus, log_path)
+    values, text = parse(log_path)
+    if args.keep_log:
+        shutil.copy(log_path, args.keep_log)
+    os.unlink(log_path)
+
+    if qemu_err:
+        print(f"qemu said: {qemu_err[-300:]}", file=sys.stderr)
+    if values is None:
+        print("\nFAIL: the smoke test never reported. Last lines of the serial console:\n", file=sys.stderr)
+        print("\n".join(text.splitlines()[-25:]), file=sys.stderr)
+        return 1
+
+    print(f"\nthe machine reported after {seconds:.0f}s: kernel {values.get('kernel', '?')}\n")
+    failures = 0
+    for title, check, key in CHECKS:
+        ok = bool(check(values))
+        failures += not ok
+        print(f"  {'PASS' if ok else 'FAIL'}  {title:<34} {values.get(key, '(missing)')[:70]}")
+    for unit in values["_failed_units"]:
+        print(f"        failed unit: {unit}")
+    print(f"\n  ready (boot complete, blessing done) after {values.get('uptime_s', '?')}s of uptime")
+    print(f"  kernel images on the ESP: {values.get('blessed_entries', '?')}")
+    print(f"\n{'ALL CHECKS PASSED' if not failures else f'{failures} CHECK(S) FAILED'}")
+    return 1 if failures else 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

@@ -1,0 +1,66 @@
+#!/usr/bin/env bash
+# Build ECP's compiled RPMs inside an openSUSE Tumbleweed container and place them in mkosi.packages/.
+#
+# Compiled packages must not be built on the host: a binary linked against the host's glibc and
+# libraries will not run in the image. Each package is built from the exact commit pinned in its spec
+# (`%global commit`), exported with `git archive`, so uncommitted changes in the source
+# checkouts are ignored.
+#
+#   scripts/build-rpms                      # all packages
+#   scripts/build-rpms ersa-dialer          # one package
+#
+# Source checkouts (override with the environment variables):
+#   ERSA_BLUETOOTH_SRC  default ~/Dev/ersa-bluetooth
+#   ERSA_DIALER_SRC     default ~/Dev/dialer
+# x86-64 only for now: an aarch64 build needs an emulated or native aarch64 container.
+set -euo pipefail
+cd "$(dirname "$0")/.."
+
+declare -A SRC=(
+  [ersa-bluetooth]="${ERSA_BLUETOOTH_SRC:-$HOME/Dev/ersa-bluetooth}"
+  [ersa-dialer]="${ERSA_DIALER_SRC:-$HOME/Dev/dialer}"
+)
+# Tarball name and top-level directory prefix, matching Source0 and %prep in each spec.
+declare -A TOP=([ersa-bluetooth]=ersa-bluetooth [ersa-dialer]=dialer)
+image="${ECP_BUILD_IMAGE:-registry.opensuse.org/opensuse/tumbleweed:latest}"
+
+command -v podman >/dev/null || { echo 'podman is required' >&2; exit 1; }
+packages=("$@")
+[[ ${#packages[@]} -gt 0 ]] || packages=(ersa-bluetooth ersa-dialer)
+
+work="$(mktemp -d "${TMPDIR:-/tmp}/ecp-rpms.XXXXXX")"
+trap 'rm -rf "$work"' EXIT
+mkdir -p "$work/SOURCES" "$work/RPMS"
+
+for pkg in "${packages[@]}"; do
+  [[ -n "${SRC[$pkg]:-}" ]] || { echo "unknown package: $pkg (known: ${!SRC[*]})" >&2; exit 2; }
+  spec="packages/$pkg/$pkg.spec"
+  [[ -f "$spec" ]] || { echo "missing $spec" >&2; exit 1; }
+  commit="$(awk '$1 == "%global" && $2 == "commit" {print $3; exit}' "$spec")"
+  [[ -n "$commit" ]] || { echo "$spec has no '%global commit'" >&2; exit 1; }
+  git -C "${SRC[$pkg]}" cat-file -e "$commit^{commit}" 2>/dev/null \
+    || { echo "commit $commit not found in ${SRC[$pkg]}" >&2; exit 1; }
+  top="${TOP[$pkg]}-$commit"
+  git -C "${SRC[$pkg]}" archive --format=tar.gz --prefix="$top/" -o "$work/SOURCES/$top.tar.gz" "$commit"
+  echo "Exported $pkg at $commit" >&2
+done
+
+podman run --rm --security-opt label=disable \
+  --volume "$work:/build:rw" --volume "$PWD/packages:/specs:ro" \
+  "$image" bash -euc '
+    zypper --non-interactive --gpg-auto-import-keys refresh
+    zypper --non-interactive install --no-recommends rpm-build rpm-config-SUSE tar gzip git
+    for pkg in "$@"; do
+      spec="/specs/$pkg/$pkg.spec"
+      # Install the spec build dependencies (capability names; version constraints are dropped).
+      rpmspec -q --buildrequires "$spec" | awk "{print \$1}" | sort -u \
+        | xargs zypper --non-interactive install --no-recommends
+      rpmbuild -bb --define "_topdir /build" --define "_sourcedir /build/SOURCES" "$spec"
+    done
+  ' _ "${packages[@]}"
+
+mkdir -p mkosi.packages
+for pkg in "${packages[@]}"; do rm -f mkosi.packages/"$pkg"-[0-9]*.rpm mkosi.packages/"$pkg"-debug*.rpm; done
+# The image does not use debuginfo or debugsource packages.
+find "$work/RPMS" -name '*.rpm' -not -name '*.src.rpm' -not -name '*-debuginfo-*' -not -name '*-debugsource-*' \
+  -exec cp -v {} mkosi.packages/ \;

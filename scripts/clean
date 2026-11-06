@@ -1,0 +1,105 @@
+#!/usr/bin/env bash
+# Remove build outputs, generated files and scratch space.
+#
+# Default: images (mkosi.output), generated branding, and the scratch/cache directories that
+# scripts/build keeps on tmpfs. These are cheap to recreate.
+# --all:   also the locally built RPMs (mkosi.packages), the mkosi tools tree and mkosi's package
+#          caches. The next build then re-downloads and rebuilds them, which takes much longer.
+#
+# Only fixed paths below are ever removed; nothing outside them is touched.
+set -euo pipefail
+cd "$(dirname "$0")/.."
+
+usage() {
+  cat >&2 <<'EOF'
+usage: scripts/clean [--all] [--dry-run] [--yes] [--force]
+  --all       also remove generated RPMs, the tools tree and package caches
+  -n, --dry-run  list what would be removed and how large it is; remove nothing
+  -y, --yes   do not ask for confirmation (required when stdin is not a terminal)
+  --force     clean even if a mkosi build appears to be running
+EOF
+}
+
+all=0 dry=0 yes=0 force=0
+for arg in "$@"; do
+  case "$arg" in
+    --all) all=1 ;;
+    -n|--dry-run) dry=1 ;;
+    -y|--yes) yes=1 ;;
+    --force) force=1 ;;
+    -h|--help) usage; exit 0 ;;
+    *) usage; exit 2 ;;
+  esac
+done
+
+# Same location scripts/build uses. Only its tmp/ and cache/ subdirectories are removed, so a
+# custom ECP_WORK_DIR can never cause the directory itself (or anything else in it) to be deleted.
+work="${ECP_WORK_DIR:-/tmp/ecp-work}"
+case "$work" in
+  ''|/|"$HOME"|"$HOME"/) echo "refusing unsafe ECP_WORK_DIR: '$work'" >&2; exit 2 ;;
+esac
+
+candidates=(mkosi.output mkosi.branding "$work/tmp" "$work/cache")
+# Left behind by earlier manual builds (TMPDIR=/tmp/ecp-tmp XDG_CACHE_HOME=/tmp/ecp-cache).
+candidates+=(/tmp/ecp-tmp /tmp/ecp-cache)
+if (( all )); then
+  candidates+=(mkosi.packages mkosi.tools mkosi.tools.manifest mkosi.cache mkosi.builddir mkosi.pkgcache)
+fi
+
+targets=()
+for t in "${candidates[@]}"; do
+  [[ -e "$t" || -L "$t" ]] && targets+=("$t")
+done
+if (( ${#targets[@]} == 0 )); then
+  echo 'nothing to clean'
+  exit 0
+fi
+
+# Removing a tree while a build has things mounted or open in it is how files go missing.
+if pgrep -f '(^|/)mkosi .*build' >/dev/null; then
+  if (( force )); then
+    echo 'warning: a mkosi build appears to be running (--force given)' >&2
+  elif (( dry )); then
+    echo 'note: a mkosi build appears to be running; a real clean would refuse' >&2
+  else
+    echo 'a mkosi build appears to be running; stop it first (or use --force)' >&2
+    exit 1
+  fi
+fi
+
+# rm would follow bind mounts into the host if a build was killed before it unmounted.
+for t in "${targets[@]}"; do
+  real="$(realpath -m -- "$t")"
+  if findmnt -rn -o TARGET | awk -v p="$real" \
+      'index($0, p) == 1 && (length($0) == length(p) || substr($0, length(p) + 1, 1) == "/") { f = 1 } END { exit !f }'; then
+    echo "refusing: something is still mounted under $real" >&2
+    echo "unmount it first, e.g.: sudo umount -R $real" >&2
+    exit 1
+  fi
+done
+
+echo 'would remove:' | sed "s/would/$( (( dry )) && echo 'would' || echo 'will')/"
+for t in "${targets[@]}"; do
+  size="$(du -sh -- "$t" 2>/dev/null | cut -f1 || true)"
+  printf '  %-8s %s\n' "${size:-?}" "$t"
+done
+(( dry )) && exit 0
+
+if (( ! yes )); then
+  if [[ ! -t 0 ]]; then
+    echo 'not a terminal: pass --yes to confirm' >&2
+    exit 1
+  fi
+  read -r -p 'Delete these? [y/N] ' reply
+  [[ "$reply" == [yY]* ]] || { echo 'aborted'; exit 1; }
+fi
+
+# Files created by `sudo scripts/build` are root-owned; use sudo only when needed.
+rm_cmd=(rm -rf --one-file-system --)
+if (( EUID != 0 )) && [[ -n "$(find "${targets[@]}" -xdev ! -user "$USER" -print -quit 2>/dev/null)" ]]; then
+  echo 'some files are owned by root; using sudo'
+  rm_cmd=(sudo rm -rf --one-file-system --)
+fi
+"${rm_cmd[@]}" "${targets[@]}"
+rmdir "$work" 2>/dev/null || true
+echo 'done'

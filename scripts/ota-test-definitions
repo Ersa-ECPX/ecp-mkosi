@@ -1,0 +1,19 @@
+#!/usr/bin/env bash
+# Write a test copy of the update transfer files that point at a local server and skip signature
+# checking, for `systemd-sysupdate --definitions=DIR` in the guest:
+#   scripts/ota-test-definitions [URL] [OUTDIR]     defaults: http://10.0.2.2:8000/x86-64/  ./ota-test.d
+# Copy OUTDIR into the guest, for example: scp -r ota-test.d USER@GUEST:
+set -euo pipefail
+cd "$(dirname "$0")/.."
+url="${1:-http://10.0.2.2:8000/x86-64/}"
+out="${2:-ota-test.d}"
+[[ "$url" == */ ]] || url="$url/"
+mkdir -p "$out"
+for f in 10-root 20-uki; do
+  src="mkosi.extra/usr/lib/sysupdate.d/$f.transfer"
+  # Same file as shipped, with the source pointing at the test server and verification off (test only).
+  sed -e "s|^Path=https://updates.ersa.invalid/ecp/x86-64/\$|Path=$url|" \
+      -e 's|^\[Transfer\]$|[Transfer]\nVerify=no|' "$src" > "$out/$f.transfer"
+done
+echo "wrote $out/ (source $url, Verify=no: for tests only):"
+grep -H -E "^(Path=http|Verify=)" "$out"/*.transfer

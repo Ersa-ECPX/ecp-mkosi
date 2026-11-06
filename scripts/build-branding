@@ -1,0 +1,42 @@
+#!/usr/bin/env bash
+# Render ECP's logos from branding/*.svg into mkosi.branding/, an extra tree that mkosi overlays
+# on the image. Nothing in mkosi.branding/ is committed.
+#
+# GNOME Settings > About reads LOGO= from os-release (here: ersa-logo) and looks the name up in
+# the icon theme as <LOGO>-text-dark, <LOGO>-text, <LOGO>-dark, then <LOGO>, preferring the dark
+# names in the dark style. So ersa-logo is the light-mode mark and ersa-logo-dark the dark-mode one.
+# The GDM login screen uses a PNG set through a gschema override.
+set -euo pipefail
+cd "$(dirname "$0")/.."
+
+command -v rsvg-convert >/dev/null || { echo 'rsvg-convert is required (librsvg2-tools / librsvg2-bin)' >&2; exit 1; }
+
+light=branding/ersa-mark-light.svg
+dark=branding/ersa-mark-dark.svg
+out="${ECP_BRANDING_DIR:-mkosi.branding}"
+# A tree left behind by a build that ran as root cannot be removed by a normal user.
+rm -rf "$out" 2>/dev/null || {
+  echo "cannot remove $out (owned by another user, probably root from an earlier sudo build)." >&2
+  echo "run: sudo rm -rf $out" >&2
+  exit 1
+}
+icons="$out/usr/share/icons/hicolor"
+pix="$out/usr/share/pixmaps"
+mkdir -p "$icons/scalable/apps" "$pix"
+
+png() { rsvg-convert --width "$2" --height "$2" --keep-aspect-ratio "$1" -o "$3"; }
+
+# Themed icons (SVG scales to any size). ersa-logo: dark mark for light backgrounds.
+cp "$light" "$icons/scalable/apps/ersa-logo.svg"
+cp "$dark" "$icons/scalable/apps/ersa-logo-dark.svg"
+# Raster sizes for toolkits and menus that prefer PNG.
+for s in 16 24 32 48 64 96 128 256; do
+  mkdir -p "$icons/${s}x${s}/apps"
+  png "$light" "$s" "$icons/${s}x${s}/apps/ersa-logo.png"
+  png "$dark" "$s" "$icons/${s}x${s}/apps/ersa-logo-dark.png"
+done
+
+# GDM login screen (dark background): light mark.
+png "$dark" 64 "$pix/ersa-gdm-logo.png"
+
+echo "Rendered $(find "$out" -type f | wc -l) logo files into $out/"

@@ -1,0 +1,17 @@
+# Writes the next root image into the inactive slot and labels it ecp-root_<version>.
+# The source URL is a placeholder: no update server exists yet.
+[Transfer]
+ProtectVersion=%A
+
+[Source]
+Type=url-file
+Path=https://updates.ersa.invalid/ecp/x86-64/
+MatchPattern=ecp_@v.root-x86-64.raw.zst \
+             ecp_@v.root-x86-64.raw
+
+[Target]
+Type=partition
+Path=auto
+MatchPattern=ecp-root_@v
+MatchPartitionType=root
+ReadOnly=1

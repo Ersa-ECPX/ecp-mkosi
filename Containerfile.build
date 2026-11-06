@@ -1,7 +1,7 @@
 FROM registry.fedoraproject.org/fedora:45
 
 RUN dnf -y install git python3 python3-pip dnf5 systemd systemd-udev \
-    util-linux e2fsprogs dosfstools && dnf clean all
+    util-linux e2fsprogs dosfstools rpm-build && dnf clean all
 RUN python3 -m venv /opt/mkosi && \
     /opt/mkosi/bin/pip install --no-cache-dir \
       'git+https://github.com/systemd/mkosi.git@v27.1'

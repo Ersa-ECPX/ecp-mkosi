@@ -1,0 +1,4 @@
+# Starts the Bluetooth bridge for the desktop user once the ersa-bluetooth package is installed.
+enable ersa-bluetooth.service
+# Records that first-boot setup is complete, after GNOME Initial Setup finishes.
+enable foundation-provisioning.path

@@ -1,0 +1,26 @@
+#!/bin/sh
+# Refresh the icon and font caches at build time.
+set -eu
+for tool in gtk4-update-icon-cache gtk-update-icon-cache; do
+    if command -v "$tool" >/dev/null 2>&1; then
+        "$tool" --quiet --force --ignore-theme-index /usr/share/icons/hicolor || true
+        break
+    fi
+done
+
+# Compile GLib schemas so the GDM login-screen logo override (10_ersa-branding.gschema.override) applies.
+if command -v glib-compile-schemas >/dev/null 2>&1; then
+    glib-compile-schemas /usr/share/glib-2.0/schemas || true
+fi
+
+# Build the system font cache now: the root is read-only at runtime, so without it every user
+# would build a private cache on first launch.
+if command -v fc-cache >/dev/null 2>&1; then
+    fc-cache --force --system-only || true
+fi
+# The persistent layer of the /etc overlay (assembled in the initrd, see mkosi.initrd.extra) lives on
+# the /var partition. Both directories must exist before the first mount; mkosi copies /var into the
+# partition at build time, so create them here, where the image's SELinux relabel also reaches them.
+install -d -m 0755 /var/lib/ecp/etc/upper
+install -d -m 0700 /var/lib/ecp/etc/work
+exit 0

@@ -1,0 +1,29 @@
+#!/usr/bin/python3
+"""Label the /etc overlay's persistent directories like /etc itself, after mkosi's SELinux relabel.
+
+The /etc overlay (mkosi.initrd.extra, sysroot-etc.mount) has its upper layer in
+/var/lib/ecp/etc/upper. An overlay's root directory takes its label from the upper layer's root, so
+if that directory carries its ordinary /var/lib label (var_lib_t), /etc itself looks like var_lib_t
+and SELinux denies useradd, dbus-broker and others. The path substitution in
+etc/selinux/targeted/contexts/files/file_contexts.subs makes the relabel (and any later restorecon)
+treat the upper layer as /etc; this script sets the label directly as well, in case the relabel
+reads only its explicit file_contexts file and ignores the substitution.
+
+mkosi runs finalize scripts after the relabel, so this label is the one that ships.
+"""
+import os
+import sys
+
+CONTEXT = b"system_u:object_r:etc_t:s0\0"
+
+failed = False
+for path in ("/var/lib/ecp/etc/upper", "/var/lib/ecp/etc/work"):
+    try:
+        os.setxattr(path, "security.selinux", CONTEXT, follow_symlinks=False)
+        print(f"labelled {path} as etc_t")
+    except OSError as error:
+        failed = True
+        print(f"WARNING: could not label {path}: {error}", file=sys.stderr)
+if failed:
+    print("WARNING: the /etc overlay will be mislabelled; relying on file_contexts.subs alone", file=sys.stderr)
+sys.exit(0)

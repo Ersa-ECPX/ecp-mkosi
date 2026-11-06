@@ -20,7 +20,7 @@ jobs:
       - name: Install build dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install --yes dnf pipx systemd-container policycoreutils selinux-utils zstd
+          sudo apt-get install --yes dnf pipx rpm systemd-container policycoreutils selinux-utils zstd librsvg2-bin imagemagick
           pipx install 'git+https://github.com/systemd/mkosi.git@v27.1'
           echo "$HOME/.local/bin" >> "$GITHUB_PATH"
 

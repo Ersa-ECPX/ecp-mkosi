@@ -1,3 +1,8 @@
+disable systemd-firstboot.service
 enable NetworkManager.service
-enable sddm.service
-enable systemd-firstboot.service
+enable gdm.service
+enable serial-getty@ttyS0.service
+enable tmp.mount
+enable systemd-boot-check-no-failures.service
+enable bluetooth.service
+enable firewalld.service

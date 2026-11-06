@@ -1,0 +1,13 @@
+#!/usr/bin/env bash
+# Serve the published update files over HTTP for a test:
+#   scripts/serve-update [DIR] [PORT]        defaults: dist, 8000
+# It binds to the host's loopback only. A QEMU guest on the default user-mode network reaches it
+# as http://10.0.2.2:PORT/ (the host's loopback seen from the guest). Not for real use: no TLS,
+# no authentication, and Python's server does not support HTTP range requests.
+set -euo pipefail
+cd "$(dirname "$0")/.."
+dir="${1:-dist}"
+port="${2:-8000}"
+[[ -d "$dir" ]] || { echo "$dir does not exist; run scripts/publish-update first" >&2; exit 1; }
+echo "serving $dir on http://127.0.0.1:$port/  (guest: http://10.0.2.2:$port/)  -- Ctrl-C to stop"
+exec python3 -m http.server --directory "$dir" --bind 127.0.0.1 "$port"

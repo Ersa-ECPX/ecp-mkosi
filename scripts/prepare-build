@@ -1,0 +1,17 @@
+#!/usr/bin/env bash
+# Everything that must exist before mkosi runs: logo assets, locally built RPMs, and the compiled
+# RPMs built in a Tumbleweed container. Called by scripts/build and scripts/build-podman.
+set -euo pipefail
+cd "$(dirname "$0")/.."
+
+scripts/build-branding
+scripts/build-splash-package
+scripts/build-foundation-package
+# Compiled RPMs (ersa-bluetooth, ersa-dialer): rebuild when missing or when the commit pinned in a
+# spec changed.
+need_rpms=0
+for pkg in ersa-bluetooth ersa-dialer; do
+  commit="$(awk '$1 == "%global" && $2 == "commit" {print $3; exit}' "packages/$pkg/$pkg.spec")"
+  compgen -G "mkosi.packages/$pkg-[0-9]*.git${commit:0:7}*.rpm" >/dev/null || need_rpms=1
+done
+if [[ "$need_rpms" == 1 ]]; then scripts/build-rpms; fi

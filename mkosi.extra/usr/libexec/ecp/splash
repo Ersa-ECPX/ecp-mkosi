@@ -1,0 +1,14 @@
+#!/bin/sh
+# Show or clear a status line under the Plymouth progress bar.
+#   splash show "Resizing storage..."
+#   splash hide "Resizing storage..."
+# Always exits 0 so a missing or finished splash never fails the calling unit.
+action="${1:-}"
+text="${2:-}"
+[ -n "$action" ] && [ -n "$text" ] || exit 0
+plymouth --ping >/dev/null 2>&1 || exit 0
+case "$action" in
+    show) plymouth display-message --text="$text" >/dev/null 2>&1 ;;
+    hide) plymouth hide-message --text="$text" >/dev/null 2>&1 ;;
+esac
+exit 0

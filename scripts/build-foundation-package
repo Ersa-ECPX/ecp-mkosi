@@ -1,0 +1,27 @@
+#!/usr/bin/env bash
+# Build the pure-Python `foundation` and `foundationd` noarch RPMs (one spec) into mkosi.packages/.
+set -euo pipefail
+cd "$(dirname "$0")/.."
+
+command -v rpmbuild >/dev/null || { echo 'rpmbuild is required to build foundation' >&2; exit 1; }
+
+spec=packages/foundation/foundation.spec
+version="$(awk '$1 == "Version:" {print $2; exit}' "$spec")"
+package_dir="$PWD/mkosi.packages"
+build_dir="$(mktemp -d "${TMPDIR:-/tmp}/ecp-foundation.XXXXXX")"
+trap 'rm -rf "$build_dir"' EXIT
+mkdir -p "$build_dir"/{BUILD,BUILDROOT,RPMS,SOURCES,SPECS,SRPMS,rpmdb,tmp} "$package_dir"
+
+# Source tarball from the working tree: foundation/ without caches.
+tar --exclude='__pycache__' --exclude='*.pyc' \
+    --transform "s,^foundation,foundation-$version," \
+    -czf "$build_dir/SOURCES/foundation-$version.tar.gz" foundation
+
+rpm --initdb --dbpath "$build_dir/rpmdb"
+rpmbuild --define "_topdir $build_dir" \
+  --define "_dbpath $build_dir/rpmdb" \
+  --define "_tmppath $build_dir/tmp" \
+  --define "_sourcedir $build_dir/SOURCES" \
+  -bb "$spec"
+rm -f "$package_dir"/foundation-[0-9]*.rpm "$package_dir"/foundationd-[0-9]*.rpm "$package_dir"/foundation-installer-[0-9]*.rpm
+cp "$build_dir"/RPMS/noarch/foundation-[0-9]*.rpm "$build_dir"/RPMS/noarch/foundationd-[0-9]*.rpm "$build_dir"/RPMS/noarch/foundation-installer-[0-9]*.rpm "$package_dir/"

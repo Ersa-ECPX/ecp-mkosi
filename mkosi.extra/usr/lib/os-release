@@ -1,0 +1,11 @@
+NAME="Ersa Compute Platform"
+PRETTY_NAME="Ersa Compute Platform"
+# ECP is built from openSUSE Tumbleweed. Tools that key on ID or ID_LIKE (zypper, Flatpak,
+# package repositories) keep working. VERSION_ID is intentionally absent: Tumbleweed has no
+# fixed version, and ECP's own version is IMAGE_VERSION, added by mkosi at build time.
+ID="opensuse-tumbleweed"
+ID_LIKE="opensuse suse"
+# GNOME Settings looks for icons named ersa-logo, ersa-logo-dark (see scripts/build-branding).
+LOGO="ersa-logo"
+# The upstream base, for tools that need to report it (see `foundation status`).
+ECP_BASE="openSUSE Tumbleweed"

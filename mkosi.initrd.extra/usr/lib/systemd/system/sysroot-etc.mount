@@ -1,0 +1,21 @@
+[Unit]
+Description=Persistent overlay for /etc
+Documentation=file:///usr/share/doc/foundation/README.md
+DefaultDependencies=no
+# /sysroot/var is mounted from the image's /etc/fstab (x-initrd.mount), which initrd-parse-etc reads
+# from the read-only root *before* this overlay exists. initrd-fs.target starts after that, and pulls
+# this unit in, so the /var mount unit is known by now.
+RequiresMountsFor=/sysroot/var
+After=initrd-parse-etc.service
+Before=initrd-fs.target
+# Only umount.target: a Conflicts= with initrd-switch-root.target would stop (unmount) this overlay
+# right before the real system starts, leaving /etc read-only.
+Conflicts=umount.target
+
+[Mount]
+What=overlay
+Where=/sysroot/etc
+Type=overlay
+# lower: the image's own /etc (new defaults arrive with every OS update); upper: local changes,
+# kept across updates; work: scratch space the kernel needs on the same filesystem as upper.
+Options=lowerdir=/sysroot/etc,upperdir=/sysroot/var/lib/ecp/etc/upper,workdir=/sysroot/var/lib/ecp/etc/work

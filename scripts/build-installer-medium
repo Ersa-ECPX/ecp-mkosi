@@ -1,0 +1,48 @@
+#!/usr/bin/env bash
+# Add the installer to a built installer image: the installer is a system extension (sysext) holding the
+# foundation-installer package, placed in the ESP's /loader/extensions/ where systemd-stub hands it to
+# the booted system, which merges it into /usr. The root image stays identical to the normal one, and
+# Deploy never copies the sysext to an installed disk.
+#
+#   scripts/build x86-64 --profile installer
+#   scripts/build-installer-medium [x86-64]
+set -euo pipefail
+cd "$(dirname "$0")/.."
+arch="${1:-x86-64}"
+version="$(sed -n 's/^ImageVersion=//p' mkosi.conf | head -n 1)"
+image="mkosi.output/ecp-installer_${version}.raw"
+rpm="$(ls -1 mkosi.packages/foundation-installer-*.rpm 2>/dev/null | sort -V | tail -n 1 || true)"
+[[ -f "$image" ]] || { echo "build the installer image first: scripts/build $arch --profile installer" >&2; exit 1; }
+[[ -n "$rpm" ]] || { echo "no foundation-installer RPM; run scripts/build-foundation-package" >&2; exit 1; }
+for tool in rpm2cpio cpio mkfs.erofs sfdisk mmd mcopy; do
+  command -v "$tool" >/dev/null || { echo "$tool is required" >&2; exit 1; }
+done
+
+work="$(mktemp -d)"
+trap 'rm -rf "$work"' EXIT
+tree="$work/tree"
+mkdir -p "$tree"
+(cd "$tree" && rpm2cpio "$OLDPWD/$rpm" | cpio --quiet -idm)
+# Only files under /usr count in a sysext; the RPM installs nothing else that matters.
+os_id="$(sed -n 's/^ID="\{0,1\}\([^"]*\)"\{0,1\}$/\1/p' mkosi.extra/usr/lib/os-release | head -n 1)"
+install -d "$tree/usr/lib/extension-release.d"
+{
+  echo "ID=$os_id"
+  echo "ARCHITECTURE=$arch"
+} > "$tree/usr/lib/extension-release.d/extension-release.ersa-installer"
+sysext="$work/ersa-installer.sysext.raw"
+mkfs.erofs -zlz4 --quiet "$sysext" "$tree" >/dev/null
+
+# Offset of the ESP in the image, in bytes.
+start="$(sfdisk --json "$image" | python3 -c '
+import json, sys
+for p in json.load(sys.stdin)["partitiontable"]["partitions"]:
+    if p["type"] == "C12A7328-F81F-11D2-BA4B-00A0C93EC93B":
+        print(p["start"] * 512); break
+else:
+    sys.exit("no ESP in the image")')"
+spec="$image@@$start"
+mmd -D s -i "$spec" ::loader 2>/dev/null || true
+mmd -D s -i "$spec" ::loader/extensions 2>/dev/null || true
+mcopy -D o -i "$spec" "$sysext" ::loader/extensions/ersa-installer.sysext.raw
+echo "added loader/extensions/ersa-installer.sysext.raw ($(stat -c %s "$sysext") bytes) to $image"

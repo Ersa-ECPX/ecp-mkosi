@@ -1,0 +1,32 @@
+#!/usr/bin/env bash
+set -euo pipefail
+cd "$(dirname "$0")/.."
+
+command -v rpmbuild >/dev/null || {
+  echo 'rpmbuild is required to build the Ersa Plymouth package' >&2
+  exit 1
+}
+command -v rsvg-convert >/dev/null || {
+  echo 'rsvg-convert is required to render the Ersa logo from branding/ersa-mark-light.svg' >&2
+  exit 1
+}
+
+package_dir="$PWD/mkosi.packages"
+build_dir="$(mktemp -d "${TMPDIR:-/tmp}/ecp-rpmbuild.XXXXXX")"
+trap 'rm -rf "$build_dir"' EXIT
+mkdir -p "$build_dir"/{BUILD,BUILDROOT,RPMS,SOURCES,SPECS,SRPMS,rpmdb,tmp} "$package_dir"
+# Plymouth cannot load SVG. Render the logo PNGs from the branding SVG into a private copy
+# of the package sources so the SVG stays the single source of truth.
+sources="$build_dir/SOURCES"
+cp -a packages/ersa-boot-splash/SOURCES/. "$sources/"
+cp branding/ersa-mark-light.svg "$sources/ersa-logo.svg"
+rsvg-convert --width 160 --height 160 --keep-aspect-ratio "$sources/ersa-logo.svg" -o "$sources/ersa-logo.png"
+rsvg-convert --width 320 --height 320 --keep-aspect-ratio "$sources/ersa-logo.svg" -o "$sources/ersa-logo@2x.png"
+rpm --initdb --dbpath "$build_dir/rpmdb"
+rpmbuild --define "_topdir $build_dir" \
+  --define "_dbpath $build_dir/rpmdb" \
+  --define "_tmppath $build_dir/tmp" \
+  --define "_sourcedir $sources" \
+  -bb packages/ersa-boot-splash/ersa-boot-splash.spec
+rm -f "$package_dir"/ersa-boot-splash-*.rpm
+cp "$build_dir"/RPMS/noarch/ersa-boot-splash-*.rpm "$package_dir/"

@@ -12,8 +12,23 @@ if [[ "$actual" != "$expected" ]]; then
   exit 1
 fi
 arch="${1:-}"
+shift || true
 case "$arch" in
   x86-64|arm64) ;;
   *) echo 'usage: scripts/build x86-64|arm64' >&2; exit 2 ;;
 esac
-exec mkosi --architecture="$arch" build
+scripts/prepare-build
+
+# mkosi's scratch space (TMPDIR) and caches (XDG_CACHE_HOME) default to /var/tmp and ~/.cache. On a
+# ZFS root the rpm transaction there stalled for hours, so keep both on tmpfs. Override with
+# ECP_WORK_DIR=/some/dir; contents are disposable. A build needs roughly 15 GiB free there.
+work="${ECP_WORK_DIR:-/tmp/ecp-work}"
+mkdir -p "$work/tmp" "$work/cache"
+avail_gib="$(df --output=avail -BG "$work" | tail -n 1 | tr -dc '0-9')"
+if (( avail_gib < 15 )); then
+  echo "warning: only ${avail_gib} GiB free in $work; the build may run out of space (set ECP_WORK_DIR)" >&2
+fi
+export TMPDIR="$work/tmp" XDG_CACHE_HOME="$work/cache"
+
+# Extra arguments go to mkosi.
+exec mkosi --architecture="$arch" "$@" build

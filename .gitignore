@@ -2,6 +2,8 @@ mkosi.output/
 mkosi.cache/
 mkosi.builddir/
 mkosi.pkgcache/
+mkosi.packages/
+mkosi.branding/
 mkosi.tools/
 mkosi.tools.manifest
 .venv/
@@ -14,3 +16,4 @@ __pycache__/
 *.iso
 *.tar
 *.SHA256SUMS
+mkosi.local.conf
