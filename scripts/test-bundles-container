@@ -13,6 +13,8 @@ cat > "$work/Containerfile" <<'CF'
 FROM registry.opensuse.org/opensuse/tumbleweed:latest
 RUN zypper -n --gpg-auto-import-keys in --no-recommends python313 python313-solv gpg2 \
  && zypper -n in --no-recommends libavcodec62 libavformat62 libavutil60 libswresample6 libswscale9 libavfilter11 libavdevice62 libva2 \
+    gstreamer-plugins-good gstreamer-plugins-bad gstreamer-plugins-ugly gstreamer-plugins-libav Mesa-libva libva-drm2 libvdpau1 \
+    libvorbis0 libopus0 libmp3lame0 libFLAC14 libdav1d7 libaom3 \
  && zypper clean -a
 CF
 podman build -q -t ecp-bundles-test -f "$work/Containerfile" "$work" >/dev/null
