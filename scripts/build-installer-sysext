@@ -32,6 +32,9 @@ install -d "$tree/usr/lib/extension-release.d"
 {
   echo "ID=$os_id"
   echo "ARCHITECTURE=$arch"
+  # Reload the service manager after merging, so the unit and its graphical.target.wants link are seen
+  # (without it the unit stayed unstarted until a manual daemon-reload; found by booting).
+  echo "EXTENSION_RELOAD_MANAGER=1"
 } > "$tree/usr/lib/extension-release.d/extension-release.ersa-installer"
 
 contexts="${ECP_FILE_CONTEXTS:-}"
