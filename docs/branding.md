@@ -21,4 +21,6 @@ GNOME's own code (read from `GNOME/gnome-control-center` and `GNOME/gnome-initia
 
 `mkosi.extra/usr/lib/os-release` overrides openSUSE's file. It keeps `ID="opensuse-tumbleweed"` and `ID_LIKE="opensuse suse"` for tool compatibility, has no `VERSION_ID` (Tumbleweed has none that is stable), and records the base in `ECP_BASE`, which `foundation status` prints. No Ersa home or bug-report URL exists yet, so none is set. The `-upstream` (neutral) openSUSE branding packages are installed for GDM and Plymouth instead of the openSUSE-branded ones.
 
-Not yet replaced: the default wallpaper (`gnome-backgrounds` from the base), other openSUSE logo files, and `/etc/os-release` compatibility files. None of this has been visually verified in a booted image. This replaces the earlier Rocky scheme, which patched `fedora-logo*` file names.
+Wallpaper: `branding/wallpaper-light.svg` and `wallpaper-dark.svg` (the mark on a soft gradient) are rendered at 3840x2160 by `scripts/build-branding` into `/usr/share/backgrounds/ersa/`, listed for Settings through `gnome-background-properties/ersa.xml`, and set as the default (light, dark and lock screen) by `90_ersa-wallpaper.gschema.override`. Not yet seen in a booted image.
+
+Not yet replaced: other openSUSE logo files, and `/etc/os-release` compatibility files. None of this has been visually verified in a booted image. This replaces the earlier Rocky scheme, which patched `fedora-logo*` file names.

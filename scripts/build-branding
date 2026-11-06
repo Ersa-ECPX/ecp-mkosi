@@ -39,4 +39,27 @@ done
 # GDM login screen (dark background): light mark.
 png "$dark" 64 "$pix/ersa-gdm-logo.png"
 
+# Wallpapers: the default background (light and dark style), listed in Settings > Appearance.
+wall="$out/usr/share/backgrounds/ersa"
+props="$out/usr/share/gnome-background-properties"
+mkdir -p "$wall" "$props"
+for style in light dark; do
+  rsvg-convert --width 3840 --height 2160 "branding/wallpaper-$style.svg" -o "$wall/ersa-$style.png"
+done
+cat > "$props/ersa.xml" <<'XML'
+<?xml version="1.0"?>
+<!DOCTYPE wallpapers SYSTEM "gnome-wp-list.dtd">
+<wallpapers>
+  <wallpaper deleted="false">
+    <name>Ersa</name>
+    <filename>/usr/share/backgrounds/ersa/ersa-light.png</filename>
+    <filename-dark>/usr/share/backgrounds/ersa/ersa-dark.png</filename-dark>
+    <options>zoom</options>
+    <shade_type>solid</shade_type>
+    <pcolor>#d9e3de</pcolor>
+    <scolor>#26342f</scolor>
+  </wallpaper>
+</wallpapers>
+XML
+
 echo "Rendered $(find "$out" -type f | wc -l) logo files into $out/"

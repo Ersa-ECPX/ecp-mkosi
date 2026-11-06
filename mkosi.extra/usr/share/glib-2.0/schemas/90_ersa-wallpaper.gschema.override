@@ -1,0 +1,11 @@
+# The default wallpaper (files from scripts/build-branding), for the light and the dark style and the lock screen.
+[org.gnome.desktop.background]
+picture-uri='file:///usr/share/backgrounds/ersa/ersa-light.png'
+picture-uri-dark='file:///usr/share/backgrounds/ersa/ersa-dark.png'
+picture-options='zoom'
+primary-color='#d9e3de'
+
+[org.gnome.desktop.screensaver]
+picture-uri='file:///usr/share/backgrounds/ersa/ersa-dark.png'
+picture-options='zoom'
+primary-color='#26342f'
