@@ -14,6 +14,7 @@ runs no other tool's command line. Everything it can do, a graphical client can 
 ```
 foundation status                         system, boot slot, storage and services
 foundation slot status|boot|copy|release  A/B boot slots
+foundation splash light|dark              light or dark boot splash (next boot)
 foundation reboot [--firmware]
 foundation deploy list|install            install the running system on a disk
 foundation repo list|refresh|enable|disable|search|info
