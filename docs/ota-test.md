@@ -1,65 +1,67 @@
 # Testing an update locally (QEMU)
 
-Goal: prove, with the payloads from the `root` profile, that `systemd-sysupdate` writes the next
-version to the inactive slot, installs its kernel image with a boot counter, and that the machine
-boots it, blesses it, and can roll back. Nothing here touches a real disk or a real server.
+Goal: prove, on a real booted installation, that `foundation update install` writes the next version to the spare slot,
+that the machine boots it, blesses it, rolls back when it should, and that your bundles come along.
 
-Status: **not run yet.** The scripts are tested offline with fake payloads; the steps below are the
-first real test.
+Status: **not run yet.** The code is tested against fake disks and images; the steps below are the first real test.
 
-## 0. A rule before you start
+## 0. What you need
 
-**Never run `systemd-sysupdate` while booted from a `-copy` slot** (made by `foundation slot copy`).
-The transfer files protect `ProtectVersion=%A`, the version in the running OS's `os-release`. A copy
-runs version `0.1.0` from a partition labelled `ecp-root_0.1.0-copy`, so the protected label
-(`ecp-root_0.1.0`) is the *other* slot, and the running partition is the one `sysupdate` may overwrite.
-Test from the original slot (label equals the running version). The `Updates` interface in
-`foundationd` will have to refuse this case; until it exists, this is on you.
+- An **installed** disk (not the live installer medium: the update needs the A/B layout and a spare slot), built from a
+  foundation package that already contains the update code. The updater lives in the image, so rebuild first.
+- An **update archive** of a *different, higher* version built from the same sources.
 
-## 1. Build two versions (host)
+Never update from a `-copy` slot (made by `foundation slot copy`); test from the original slot.
 
-The running image is the normal build (`0.1.0`). The payload to update to is a higher version:
+## 1. Build the baseline (host) and install it
+
+```sh
+scripts/build-foundation-package                       # the foundation RPM, with the update code
+scripts/build x86-64 --profile installer               # the installer medium, version 0.1.0
+```
+
+Boot it in QEMU with a blank target disk, install with the installer, remove the installer disk, boot the installed system.
+Optionally install a bundle first, so you can see it follow the update: `foundation compat install @codecs`.
+
+## 2. Build and serve the update (host)
 
 ```sh
 scripts/build x86-64 --profile root --image-version 0.1.1
-scripts/publish-update            # mkosi.output/root -> dist/x86-64 (+ one SHA256SUMS)
-scripts/serve-update              # http://127.0.0.1:8000/  (leave it running)
-scripts/ota-test-definitions      # writes ./ota-test.d (source http://10.0.2.2:8000/x86-64/, Verify=no)
+scripts/make-update-archive 0.1.1                      # dist/update/ecp_0.1.1-x86_64.tar.zst  (add --sign for a signed one)
+scripts/serve-update dist/update 8000                  # leave it running; it prints the guest command
 ```
 
-Copy `ota-test.d/` into the VM (`scp -r`, or a shared folder).
-
-## 2. Update (guest)
+## 3. Install it (guest)
 
 ```sh
-foundation slot status                                   # note the running slot (must not be a -copy)
-sudo systemd-sysupdate --definitions=$HOME/ota-test.d list
-sudo systemd-sysupdate --definitions=$HOME/ota-test.d update
-lsblk -o NAME,PARTLABEL,SIZE                             # the other root now labelled ecp-root_0.1.1
-ls /boot/EFI/Linux                                       # ecp_0.1.1+3.efi next to the old kernel image
-foundation slot status                                   # 0.1.1 present as a standby slot, tries 3
+foundation slot status                                 # note the running slot (not a -copy)
+foundation update install http://10.0.2.2:8000/ecp_0.1.1-x86_64.tar.zst --unsigned
+foundation update status                               # an update is waiting for a restart
+foundation slot status                                 # 0.1.1 present as a standby slot, tries 3, the default entry
+foundation compat bundles                              # (if you installed one) rebuilt for the new system: see the job log
 ```
 
-The running slot must be untouched. `sysupdate` writes only the inactive slot, then the kernel
-image last, so a kernel image never points at a missing root.
+The running slot is untouched. The new kernel image is installed last, so it never points at a missing root.
 
-## 3. Boot it, bless it, roll back
+## 4. Boot it, bless it, roll back
 
-1. Reboot. systemd-boot should pick `0.1.1` (the higher version) with 3 tries.
-2. `foundation slot status`: running `0.1.1`, assessment `pending` then `good` (blessed).
-3. `foundation slot boot 0.1.0 --once --yes`, reboot: back on the old version for one boot.
+1. `foundation reboot`. systemd-boot should pick `0.1.1` (3 tries). The "Update ready" notification should have appeared.
+2. `foundation status`: running `0.1.1`, assessment pending, then good (blessed). `foundation update status`: nothing waiting.
+3. `foundation compat bundles`: the bundle is `current` and merged, with no network needed.
+4. Roll back: `foundation slot boot 0.1.0 --once --yes`, reboot: you are on the old version and the old bundle is back
+   (`journalctl -b -u foundation-bundles-select`).
 
-## 4. Failures that must be safe
+## 5. Failures that must be safe
 
 | Do | Expect |
 | --- | --- |
-| Stop `serve-update` (Ctrl-C) during the download | the update fails; the running slot and its kernel image are unchanged; no half-written `ecp_0.1.1+3.efi` |
-| Kill `systemd-sysupdate` during `update` | same; run it again and it completes |
-| Publish a `0.1.2` whose kernel image is broken (for example truncated) | three failed tries, then boot falls back to the previous entry |
-| Fill the data volume | `/var` is not involved; the update still succeeds |
+| Ctrl-C the server during the download | the command fails; the running slot and the ESP are unchanged |
+| Kill the `foundation update install` job (or the VM) while it writes | the spare slot stays empty or unbootable, never half-booted; run it again and it completes |
+| Edit one byte of the archive's `root.erofs` | refused before anything is written ("does not match the checksum") |
+| Install the same version again | refused unless `--force` |
+| Install with a signature check on (no `--unsigned`) and no key installed | refused: "no image signing key is installed" |
+| A `0.1.2` whose kernel image is broken | three failed tries, then boot falls back to the previous entry |
 
 ## Not covered
 
-Signature checking (`Verify=no` here; production needs `SHA256SUMS.gpg` and the public key in
-`/usr/lib/systemd/import-pubring.pgp`), HTTPS, resuming a partial download, the `Updates`
-interface, and a `-copy` slot (see section 0).
+An update server and automatic checks, the shipped signing key, delta updates, and the `-copy` slot case (section 0).
