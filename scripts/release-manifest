@@ -1,0 +1,58 @@
+#!/usr/bin/env python3
+"""Add an image release to the download page's list (releases.json).
+
+    scripts/release-manifest --version 0.1.0 --base-url https://example.org/releases/0.1.0 \\
+        mkosi.output/ecp-installer_0.1.0.raw.zst [more files] --output ~/Dev/ersa-portfolio/public/platforms/compute/releases.json
+
+Each file is listed with its size and a SHA-256 computed here, and the release goes to the top of the list. Upload the
+files yourself to the place --base-url names; nothing is uploaded by this script.
+"""
+
+import argparse
+import datetime
+import hashlib
+import json
+import os
+import sys
+
+
+def sha256(path):
+    digest = hashlib.sha256()
+    with open(path, "rb") as handle:
+        for chunk in iter(lambda: handle.read(1 << 20), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    parser.add_argument("files", nargs="+")
+    parser.add_argument("--version", required=True)
+    parser.add_argument("--base-url", required=True, help="where the files will be downloadable from (https)")
+    parser.add_argument("--output", required=True, help="the releases.json to update")
+    parser.add_argument("--notes", default="")
+    args = parser.parse_args()
+    if not args.base_url.startswith("https://"):
+        sys.exit("the base URL must be https://")
+    files = []
+    for path in args.files:
+        name = os.path.basename(path)
+        files.append({"name": name, "url": args.base_url.rstrip("/") + "/" + name, "size": os.path.getsize(path), "sha256": sha256(path)})
+    try:
+        with open(args.output, encoding="utf-8") as handle:
+            data = json.load(handle)
+    except FileNotFoundError:
+        data = {"releases": []}
+    releases = [r for r in data.get("releases", []) if r.get("version") != args.version]
+    release = {"version": args.version, "date": datetime.date.today().isoformat(), "files": files}
+    if args.notes:
+        release["notes"] = args.notes
+    releases.insert(0, release)
+    with open(args.output, "w", encoding="utf-8") as handle:
+        json.dump({"releases": releases}, handle, indent=1)
+        handle.write("\n")
+    print(f"{args.output}: {len(files)} file(s) listed for {args.version}")
+
+
+if __name__ == "__main__":
+    main()
