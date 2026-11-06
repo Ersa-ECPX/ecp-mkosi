@@ -17,7 +17,7 @@ case "$arch" in
   x86-64|arm64) ;;
   *) echo 'usage: scripts/build x86-64|arm64' >&2; exit 2 ;;
 esac
-scripts/prepare-build
+[[ -n "${ECP_SKIP_PREPARE:-}" ]] || scripts/prepare-build   # scripts/release runs it as your own user first
 
 # mkosi's scratch space (TMPDIR) and caches (XDG_CACHE_HOME) default to /var/tmp and ~/.cache. On a
 # ZFS root the rpm transaction there stalled for hours, so keep both on tmpfs. Override with
