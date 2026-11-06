@@ -6,3 +6,4 @@ enable tmp.mount
 enable systemd-boot-check-no-failures.service
 enable bluetooth.service
 enable firewalld.service
+enable systemd-sysext.service
