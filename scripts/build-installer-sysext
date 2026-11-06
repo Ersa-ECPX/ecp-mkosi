@@ -11,7 +11,13 @@ cd "$(dirname "$0")/.."
 arch="${1:-x86-64}"
 rpm="$(ls -1 mkosi.packages/foundation-installer-*.rpm 2>/dev/null | sort -V | tail -n 1 || true)"
 [[ -n "$rpm" ]] || { echo "no foundation-installer RPM; run scripts/build-foundation-package" >&2; exit 1; }
-for tool in rpm2cpio cpio mkfs.erofs; do
+# SELinux: files in a sysext keep the labels stored in the image, and an overlay shows the sysext's
+# directories on top of the real ones, so an unlabelled sysext makes /usr unreadable (dbus-broker,
+# logind and GDM were denied). Labels come from the policy's file_contexts, taken from the
+# selinux-policy-targeted package in mkosi's package cache (or ECP_FILE_CONTEXTS).
+work_dir="${ECP_WORK_DIR:-/tmp/ecp-work}"
+policy_rpm="$(find "$work_dir/cache" -name 'selinux-policy-targeted-*.rpm' 2>/dev/null | sort -V | tail -n 1 || true)"
+for tool in rpm2cpio cpio mkfs.erofs python3; do
   command -v "$tool" >/dev/null || { echo "$tool is required" >&2; exit 1; }
 done
 
@@ -28,8 +34,57 @@ install -d "$tree/usr/lib/extension-release.d"
   echo "ARCHITECTURE=$arch"
 } > "$tree/usr/lib/extension-release.d/extension-release.ersa-installer"
 
-out=mkosi.installer.extra/var/lib/extensions
-rm -rf mkosi.installer.extra
+contexts="${ECP_FILE_CONTEXTS:-}"
+if [[ -z "$contexts" ]]; then
+  [[ -n "$policy_rpm" ]] || { echo "no selinux-policy-targeted package in $work_dir/cache; build an image once, or set ECP_FILE_CONTEXTS" >&2; exit 1; }
+  (cd "$work" && rpm2cpio "$policy_rpm" | cpio --quiet -idm './etc/selinux/targeted/contexts/files/file_contexts')
+  contexts="$work/etc/selinux/targeted/contexts/files/file_contexts"
+fi
+
+python3 - "$tree" "$contexts" "$work/sysext.tar" <<'PY'
+import os, re, stat, sys, tarfile
+tree, contexts, out = sys.argv[1:]
+KINDS = {"--": stat.S_ISREG, "-d": stat.S_ISDIR, "-l": stat.S_ISLNK}
+entries = []
+with open(contexts) as handle:
+    for line in handle:
+        line = line.rstrip("\n")
+        if not line.strip() or line.startswith("#"):
+            continue
+        parts = line.split()
+        if parts[-1] == "<<none>>":
+            continue
+        kind = parts[1] if len(parts) == 3 else None
+        entries.append((re.compile(parts[0] + r"\Z"), kind, parts[-1]))
+
+def label(path, mode):
+    # The file is sorted from least to most specific, so the last match wins.
+    for regex, kind, context in reversed(entries):
+        if (kind is None or KINDS.get(kind, lambda _m: False)(mode)) and regex.match(path):
+            return context
+    raise SystemExit(f"no SELinux label for {path}")
+
+with tarfile.open(out, "w", format=tarfile.PAX_FORMAT) as tar:
+    for directory, dirs, files in os.walk(tree):
+        dirs.sort()
+        for name in [""] + sorted(files + [d for d in dirs if os.path.islink(os.path.join(directory, d))]):
+            full = os.path.join(directory, name) if name else directory
+            rel = "/" + os.path.relpath(full, tree).replace(".", "", 1) if full != tree else "/"
+            rel = rel.replace("//", "/")
+            info = tar.gettarinfo(full, arcname=os.path.relpath(full, tree))
+            info.uid = info.gid = 0
+            info.uname = info.gname = "root"
+            info.pax_headers = {"SCHILY.xattr.security.selinux": label(rel, os.lstat(full).st_mode)}
+            if info.isreg():
+                with open(full, "rb") as handle:
+                    tar.addfile(info, handle)
+            else:
+                tar.addfile(info)
+PY
+
+stage="${ECP_INSTALLER_STAGE:-mkosi.installer.extra}"
+out="$stage/var/lib/extensions"
+rm -rf "$stage" 2>/dev/null || { echo "cannot clear $stage (owned by $(stat -c %U "$stage")); run: sudo rm -rf $stage" >&2; exit 1; }
 install -d "$out"
-mkfs.erofs -zlz4 --quiet "$out/ersa-installer.raw" "$tree" >/dev/null
+mkfs.erofs -zlz4 --quiet --tar=f "$out/ersa-installer.raw" "$work/sysext.tar" >/dev/null
 echo "built $out/ersa-installer.raw ($(stat -c %s "$out/ersa-installer.raw") bytes)"

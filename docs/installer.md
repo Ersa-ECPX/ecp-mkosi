@@ -176,6 +176,12 @@ polkit rule in the booted installer image, and keyboard navigation and screen re
   *initrd* (merged there, unsigned images rejected by the stricter policy, gone after switch-root), and
   the main system's `systemd-sysext.service` only looks in `/etc`, `/run` and `/var/lib/extensions`.
   (Found 2026-11-06 by booting: "no extensions found".)
+- SELinux: a sysext keeps the labels stored in its image, and the overlay shows the sysext's directories
+  on top of the real ones, so an unlabelled sysext turned `/usr` into `unlabeled_t` and dbus-broker, logind
+  and GDM were denied (black screen, found 2026-11-06 by booting the image in QEMU with the kernel and
+  initrd taken from the UKI). `scripts/build-installer-sysext` therefore writes every path's label, from
+  the policy's `file_contexts` (the selinux-policy-targeted package in mkosi's cache), into the EROFS as
+  tar xattrs. The labels were checked in the image's bytes, not yet in a boot.
 - Installed systems never get any of it: the root is the production root and Deploy writes a fresh data
   volume. The base image needs `python3-gobject` for the app (added).
 - Build order: `scripts/build-foundation-package`, then `scripts/build x86-64 --profile installer`
