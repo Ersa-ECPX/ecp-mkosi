@@ -142,7 +142,8 @@ deployments without a password.
 
 A GTK 4 and libadwaita window in the style of the macOS *operating system* installer ("Install macOS"),
 not the `.pkg` installer: no sidebar of steps, one centred page at a time, Go Back and Continue at the
-bottom right. Pages: a welcome page; "Select your language" and "Select your time zone" (two separate screens,
+bottom right. Pages: a welcome page (the Ersa mark and a "Welcome" that drifts in from the left, rests, and
+drifts out to the right as the next language arrives, like the macOS setup assistant); "Select your language" and "Select your time zone" (two separate screens,
 each a searchable list; the zone defaults to the live system's); "Select the disk where you want to install" with large selectable
 disk icons (disks that cannot be used are dimmed with the reason); Install, which asks the service for a
 plan and then shows an erase confirmation dialog (a disk the service refuses shows the reasons instead);
@@ -162,6 +163,10 @@ rule lets `liveuser` run deploy, jobs and reboot without a password.
 a refused disk showing the failure page, no sidebar, closing blocked during install). The window tests
 open real windows, so they run only when asked, on a virtual display:
 `env -u WAYLAND_DISPLAY GDK_BACKEND=x11 GSK_RENDERER=cairo ERSA_GUI_TESTS=1 xvfb-run -a python3 -m unittest discover -s tests -p test_installer.py`.
+**Animations** (libadwaita's own, so they follow the desktop's reduce-motion setting; no Lottie): the greeting flow,
+slide transitions between pages (direction follows forward/back), staggered fade-in of each page's parts and of the
+disk cards, an eased progress bar, a breathing disk icon during the install, and a tick that draws itself on the
+done page. Tested for ending in the right state; the motion itself was only looked at in still frames.
 **Not tested:** that the installed system shows the chosen language and zone after boot (the seed files are tested,
 not a boot), that the first-boot setup does not ask again, translation of the installer's own text, and the look on the real live session (fonts, dark/light, HiDPI), the autostart and the
 polkit rule in the booted installer image, and keyboard navigation and screen readers.
