@@ -41,6 +41,8 @@ for p in json.load(sys.stdin)["partitiontable"]["partitions"]:
         print(p["start"] * 512); break
 else:
     sys.exit("no ESP in the image")')"
+# mkosi leaves its output read-only.
+chmod u+w "$image"
 spec="$image@@$start"
 mmd -D s -i "$spec" ::loader 2>/dev/null || true
 mmd -D s -i "$spec" ::loader/extensions 2>/dev/null || true
