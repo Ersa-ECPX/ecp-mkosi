@@ -7,7 +7,7 @@ command -v rpmbuild >/dev/null || {
   exit 1
 }
 command -v rsvg-convert >/dev/null || {
-  echo 'rsvg-convert is required to render the Ersa logo from branding/ersa-mark-light.svg' >&2
+  echo 'rsvg-convert is required to render the Ersa logo from branding/ersa-mark-light.svg and ersa-mark-dark.svg' >&2
   exit 1
 }
 
@@ -22,6 +22,9 @@ cp -a packages/ersa-boot-splash/SOURCES/. "$sources/"
 cp branding/ersa-mark-light.svg "$sources/ersa-logo.svg"
 rsvg-convert --width 160 --height 160 --keep-aspect-ratio "$sources/ersa-logo.svg" -o "$sources/ersa-logo.png"
 rsvg-convert --width 320 --height 320 --keep-aspect-ratio "$sources/ersa-logo.svg" -o "$sources/ersa-logo@2x.png"
+# The dark theme uses the light-coloured mark, which reads on a dark background.
+rsvg-convert --width 160 --height 160 --keep-aspect-ratio branding/ersa-mark-dark.svg -o "$sources/ersa-dark-logo.png"
+rsvg-convert --width 320 --height 320 --keep-aspect-ratio branding/ersa-mark-dark.svg -o "$sources/ersa-dark-logo@2x.png"
 rpm --initdb --dbpath "$build_dir/rpmdb"
 rpmbuild --define "_topdir $build_dir" \
   --define "_dbpath $build_dir/rpmdb" \

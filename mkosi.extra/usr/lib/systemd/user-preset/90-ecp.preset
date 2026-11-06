@@ -5,3 +5,5 @@ enable foundation-provisioning.path
 # Tells the user when an installed system update waits for a restart.
 enable foundation-update-notify.path
 enable foundation-update-notify.service
+# Makes the boot splash follow the desktop light or dark style.
+enable foundation-splash-sync.service
