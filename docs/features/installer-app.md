@@ -31,6 +31,16 @@ sidebar of steps, one centred page at a time, Go Back and Continue at the bottom
 
 The **review page** (Customize...) lists the language, the time zone and the partitions that will be created.
 
+### Screens
+
+![Welcome](../images/installer-welcome.webp)
+![Choosing a language](../images/installer-language.webp)
+![Choosing a disk](../images/installer-disks.webp)
+![Installing](../images/installer-progress.webp)
+
+*The installer window, captured from the real application in a headless session and placed on the Ersa wallpaper. The
+disks and progress shown are demonstration data, not an install in progress.*
+
 ## Animations
 
 Native libadwaita animations (no extra dependency; GTK has no Lottie player): the greeting flow, direction-aware page

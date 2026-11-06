@@ -32,6 +32,10 @@ foundation compat update                            # newest packages, for every
 repository and some codecs are patent-encumbered in some countries), and asks before turning on a disabled repository.
 The default bundle for plain package names is `extras`.
 
+![foundation compat catalog and deploy list](../images/terminal-catalog.webp)
+
+*Real output captured in QEMU from the installer image, rendered as an image.*
+
 ## How a bundle is built
 
 1. **Solve.** The whole bundle is solved with libsolv against the packages the base already has plus the packages of the

@@ -72,3 +72,12 @@ These methods found most of the boot bugs, and need only QEMU and KVM:
 - Nothing has been tested on real hardware.
 
 See also: [installer medium](live-medium.md), [developer guide](../../foundation/README.md#testing).
+
+## Publishing the wiki (GitHub Pages)
+
+`scripts/build-wiki docs/wiki/index.html --cname compute.ersa.dev` writes a folder holding `index.html`, `assets/`
+(the screenshots), `.nojekyll` and `CNAME`. Publish the contents of `docs/wiki/` as the root of a Pages site (a
+`gh-pages` branch or a Pages workflow) and point the domain's DNS at GitHub Pages. Nothing in the page needs a server.
+
+Screenshots in `docs/images/` are real: installer windows are captured from the application in a headless session,
+and terminal images are output captured from a booted installer image in QEMU, rendered as pictures.

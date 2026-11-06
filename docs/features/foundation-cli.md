@@ -27,6 +27,11 @@ foundation base [FILTER]                  packages in the read-only base image
 
 Run `foundation COMMAND --help` for any of them.
 
+![foundation status](../images/terminal-status.webp)
+
+*Real output of `foundation status`, captured in QEMU from the installer image (so it shows the live medium: one slot,
+direct kernel boot, no UEFI boot selection) and rendered as an image.*
+
 ## Habits shared by every command
 
 - **`--json`** on anything that prints data, for scripts.
