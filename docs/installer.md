@@ -175,7 +175,7 @@ polkit rule in the booted installer image, and keyboard navigation and screen re
   and the installer profile puts it on the medium's **data volume** at `/var/lib/extensions/`
   (`ExtraTrees=mkosi.installer.extra`), where `systemd-sysext.service` (enabled in the preset) merges it
   into `/usr` at boot. It carries the app, the hidden launcher and `ersa-live-session.service`, which
-  creates `liveuser` (password `liveuser`), passwordless sudo, the polkit rule, GDM automatic login and
+  creates `liveuser` (password `liveuser`), passwordless sudo (a one-line drop-in for `systemd-sysext.service` in the root image starts it right after the merge, because a unit merged mid-boot is not in the boot's job list; checked on four boots in a row), the polkit rule, GDM automatic login (SUSE's gdm reads `DISPLAYMANAGER_AUTOLOGIN` from `/etc/sysconfig/displaymanager`, empty in the image, ahead of `custom.conf`, so both are set) and
   the installer autostart under `/etc` and `/home` (the medium's overlay and data volume, never the root image).
 - Why not the ESP: systemd-stub's `/loader/extensions/` and `/.extra/sysext` are for extending the
   *initrd* (merged there, unsigned images rejected by the stricter policy, gone after switch-root), and
