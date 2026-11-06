@@ -82,7 +82,7 @@ Boot the installed disk afterwards **on its own** (without the installer drive).
 | What you see | Cause |
 | --- | --- |
 | GNOME Initial Setup instead of the installer | the sysext was not merged: look at `systemd-sysext status` |
-| Emergency mode with a locked root account | a required mount failed in the initrd; boot headless with a debug shell and read the failed unit (the removed read-only layout did this) |
+| Emergency mode with a locked root account | a required mount failed in the initrd; boot headless and read the console (it was the removed read-only layout, then `/var` missing `x-initrd.mount`) |
 | Black screen, no login | SELinux denials on an unlabelled extension (fixed: extensions are labelled for their merged paths) |
 | An installed user with no home | two disks with the same labels mounted `/home` from the wrong one (fixed: installed systems name their disks by PARTUUID) |
 

@@ -79,7 +79,7 @@ disk is never mistaken for it. The normal image stays for QEMU testing ([install
 
 **Which disk is mounted.** Nothing is found by a label that another disk could share. A built image's
 command line names its root and data volume by label (fine with one disk). `foundation deploy` rewrites the copied
-kernel image's command line for the new install: `root=PARTUUID=…` and `systemd.mount-extra=PARTUUID=…:/var…` /
+kernel image's command line for the new install: `root=PARTUUID=…` and `systemd.mount-extra=PARTUUID=…:/var…,x-initrd.mount` /
 `…:/home…` with UUIDs it generated and pinned when creating the partitions (`deploy.py`, `installed_cmdline`), so an
 installer USB left in, or a second install, cannot supply the wrong `/var` or `/home`. The installer medium's root
 is labelled `ecp-live_<version>`, not `ecp-root_<version>`, so the two can be told apart. **Known gap:** kernel images that arrive later by OTA
