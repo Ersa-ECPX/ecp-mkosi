@@ -45,3 +45,9 @@ added later, with credit to each photographer, once someone has chosen them.
 - A booted check of Settings, the login screen and the wallpapers is still needed.
 
 See also: [docs/branding.md](../branding.md) (sources and details).
+
+## In Settings
+
+![Settings, About](../images/desktop-about.webp)
+
+*GNOME Settings, About page, captured from the installer image booted in QEMU.*
