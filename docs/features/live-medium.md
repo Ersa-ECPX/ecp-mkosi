@@ -26,7 +26,7 @@ scripts/build x86-64 --profile installer    # builds the sysext first, then the 
 | --- | --- | --- |
 | ESP | 512 MiB | systemd-boot and the kernel image |
 | Root | 5 GiB | the operating system, EROFS, labelled `ecp-live_<version>` |
-| `ECP-DATA` | 512 MiB | btrfs: the live session's `/var` and `/home`, and the installer sysext |
+| `ECP-LIVE` | 512 MiB | btrfs: the live session's `/var` and `/home`, and the installer sysext |
 
 About 6 GiB, so it fits an 8 GB stick. The root is labelled `ecp-live_<version>`, not `ecp-root_<version>`, and the kernel
 command line says so (the last `root=` wins), so an installed disk attached at the same time is never taken for it.

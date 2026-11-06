@@ -1,6 +1,6 @@
 # Updates (OTA)
 
-**Status:** installing an update **from a file** is built and unit-tested against fake disks and images. It has **not been
+**Status:** partly built. Installing an update **from a file** is built and unit-tested against fake disks and images. It has **not been
 run on a booted system**, and there is no update server, no shipped signing key and no automatic checking. Do not rely
 on it yet.
 

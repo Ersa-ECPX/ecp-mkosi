@@ -20,7 +20,7 @@ checked (in QEMU, on virtual disks only) before they are described as working.
 The installer is an mkosi **profile** of the same OS, not a separate distribution: `scripts/build x86-64
 --profile installer`. It uses a minimal layout, defined in `mkosi.repart.installer/`: a 512 MiB ESP, **one**
 5 GiB root (labelled `ecp-live_<version>`; nothing on the stick is updated, so there is no slot B and no recovery
-partition) and a 512 MiB btrfs data volume, `ECP-DATA`, for the live session's `/var` and `/home` and the installer
+partition) and a 512 MiB btrfs data volume, `ECP-LIVE` (not `ECP-DATA`, so an installed disk is never mistaken for it), for the live session's `/var` and `/home` and the installer
 sysext. About 6 GiB in total, so it fits an 8 GB stick. The normal image (A/B slots) remains the one for QEMU testing.
 
 **A read-only variant was tried and removed (2026-11-06).** It put `/var`, `/home` and the `/etc` overlay's storage in
