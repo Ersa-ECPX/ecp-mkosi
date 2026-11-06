@@ -1,0 +1,93 @@
+#!/usr/bin/env python3
+"""Make an update archive that `foundation update install` reads, from the output of the `root` profile.
+
+    scripts/build x86-64 --profile root
+    scripts/make-update-archive 0.2.0                       # unsigned: only for an image you built yourself
+    ECP_SIGN_KEY=<key id> scripts/make-update-archive 0.2.0 --sign
+
+Reads  mkosi.output/root/ecp_<version>.root-x86-64.raw.zst  (the root filesystem, EROFS)  and
+       mkosi.output/root/ecp_<version>.efi                  (the unified kernel image)
+Writes dist/update/ecp_<version>-x86_64.tar.zst holding exactly: manifest.json (first), manifest.json.sig (with
+--sign), root.erofs, uki.efi. The manifest is what is signed and names the size and SHA-256 of the two big files.
+The signing key must live outside this repository, in your GPG keyring; the system trusts a key only if its public
+half is installed as /usr/share/foundation/keys/ersa-image-*.asc or /etc/foundation/keys/ersa-image-*.asc.
+"""
+
+import argparse
+import hashlib
+import json
+import os
+import subprocess
+import sys
+import tarfile
+import tempfile
+
+HERE = os.path.dirname(os.path.abspath(__file__))
+ROOT = os.path.dirname(HERE)
+ARCH = {"x86-64": "x86_64", "arm64": "aarch64"}
+
+
+def digest(path):
+    h = hashlib.sha256()
+    with open(path, "rb") as handle:
+        for chunk in iter(lambda: handle.read(1 << 20), b""):
+            h.update(chunk)
+    return h.hexdigest()
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    parser.add_argument("version")
+    parser.add_argument("--arch", default="x86-64", choices=sorted(ARCH))
+    parser.add_argument("--source", default=os.path.join(ROOT, "mkosi.output", "root"))
+    parser.add_argument("--output", default=os.path.join(ROOT, "dist", "update"))
+    parser.add_argument("--sign", action="store_true", help="sign manifest.json with the GPG key in $ECP_SIGN_KEY")
+    args = parser.parse_args()
+
+    root_zst = os.path.join(args.source, f"ecp_{args.version}.root-{args.arch}.raw.zst")
+    uki = os.path.join(args.source, f"ecp_{args.version}.efi")
+    for path in (root_zst, uki):
+        if not os.path.isfile(path):
+            sys.exit(f"missing {path}; build it with: scripts/build {args.arch} --profile root")
+    key = os.environ.get("ECP_SIGN_KEY", "")
+    if args.sign and not key:
+        sys.exit("--sign needs ECP_SIGN_KEY (a GPG key id)")
+    os.makedirs(args.output, exist_ok=True)
+    out = os.path.join(args.output, f"ecp_{args.version}-{ARCH[args.arch]}.tar.zst")
+
+    with tempfile.TemporaryDirectory(dir=args.output, prefix="work.") as work:
+        erofs = os.path.join(work, "root.erofs")
+        with open(erofs, "wb") as handle:
+            subprocess.run(["zstd", "-dc", "--", root_zst], stdout=handle, check=True)
+        manifest = {"format": 1, "name": "ecp", "version": args.version, "arch": ARCH[args.arch],
+                    "root": {"file": "root.erofs", "sha256": digest(erofs), "size": os.path.getsize(erofs)},
+                    "uki": {"file": "uki.efi", "sha256": digest(uki), "size": os.path.getsize(uki)}}
+        manifest_path = os.path.join(work, "manifest.json")
+        with open(manifest_path, "w", encoding="utf-8") as handle:
+            json.dump(manifest, handle, indent=1)
+            handle.write("\n")
+        members = [("manifest.json", manifest_path)]
+        if args.sign:
+            signature = manifest_path + ".sig"
+            subprocess.run(["gpg", "--batch", "--yes", "--armor", "--detach-sign", "-u", key, "-o", signature, manifest_path], check=True)
+            members.append(("manifest.json.sig", signature))
+        members += [("root.erofs", erofs), ("uki.efi", uki)]
+        with open(out, "wb") as target:
+            compressor = subprocess.Popen(["zstd", "-T0", "-10", "-q"], stdin=subprocess.PIPE, stdout=target)
+            with tarfile.open(fileobj=compressor.stdin, mode="w|") as tar:
+                for name, path in members:
+                    info = tar.gettarinfo(path, arcname=name)
+                    info.uid = info.gid = 0
+                    info.uname = info.gname = ""
+                    info.mode = 0o644
+                    with open(path, "rb") as handle:
+                        tar.addfile(info, handle)
+            compressor.stdin.close()
+            if compressor.wait() != 0:
+                sys.exit("zstd failed")
+    print(out)
+    print("install it with: foundation update install " + os.path.relpath(out) + ("" if args.sign else " --unsigned"))
+
+
+if __name__ == "__main__":
+    main()

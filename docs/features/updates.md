@@ -1,39 +1,71 @@
 # Updates (OTA)
 
-**Status: scaffolding only.** The pieces that apply and confirm an update exist and the offline parts are tested, but
-**no update has been applied end to end**, there is no update server, no image signing, and no `foundation update`
-command. Do not rely on updates.
+**Status:** installing an update **from a file** is built and unit-tested against fake disks and images. It has **not been
+run on a booted system**, and there is no update server, no shipped signing key and no automatic checking. Do not rely
+on it yet.
 
-## What it is meant to be
+## What it does
 
-A new system version is downloaded as a whole root image and kernel image, written to the slot that is not running, tried
-with a boot counter, confirmed by `systemd-bless-boot`, and rolled back automatically if it does not start. Applications
-(Flatpak) and settings are unaffected by an OS update.
+`foundation update install FILE.tar.zst` takes one update archive and, in order:
 
-## What exists
+1. **Checks it.** The archive is streamed and nothing is written until every entry is checked by name, type and size. It
+   holds exactly `manifest.json` (first), `manifest.json.sig`, `root.erofs` and `uki.efi`; anything else is refused. The
+   manifest names the product, architecture, version and the size and SHA-256 of the two big files. It must carry a valid
+   GPG signature from an image signing key, unless you pass `--unsigned` for an image you built yourself.
+2. **Writes the spare slot.** The running slot is never touched, so a power cut at any point leaves the system as it was.
+   The target slot is emptied first (it cannot be booted half-written), the image is written, read back from the disk and
+   compared with the manifest, and only then labelled and given its kernel image with three boot tries.
+3. **Keeps your settings.** The new kernel image names the new slot, and takes this installation's data-volume mounts from
+   the running one (so the per-install command line is no longer lost across an update).
+4. **Rebuilds your bundles for the new system** before the restart: each bundle is solved against the new image's own
+   package database, its libraries are checked against that image, and the result is stored for that image. A bundle that
+   cannot be built (no network, a package gone, a library missing) is reported and rebuilt after the restart.
+5. **Makes the new system the next boot** (`bootctl set-default`) and records that a restart is waiting.
 
-- **Transfer definitions** for `systemd-sysupdate` (`mkosi.extra/usr/lib/sysupdate.d/10-root.transfer`, `20-uki.transfer`):
-  write `ecp_<v>.root-x86-64.raw[.zst]` into the free root slot, install `ecp_<v>.efi` with `TriesLeft=3`. The URL is a
-  placeholder (`updates.ersa.invalid`). `ProtectVersion=%A` keeps the running version safe.
-- **The `root` image profile**, which produces those payloads (`scripts/build x86-64 --profile root`).
-- **Scripts:** `scripts/publish-update` (assemble what a server serves, optionally signed), `scripts/serve-update`
-  (a local HTTP server), `scripts/ota-test-definitions` (transfer files pointing at it, with signature checks off). Tested
-  offline with fake payloads.
-- **The other half, already working:** boot counting, blessing and fallback ([boot and slots](boot-and-slots.md)), and the A/B
-  layout ([storage](storage-and-persistence.md)).
-- **Settings:** `ota.url`, `ota.channel`, `ota.auto_check`, `ota.auto_download` exist ([configuration](configuration.md))
-  but nothing reads them.
+Then it says so: the command prints "Restart to start using it: foundation reboot", `foundation update status` shows a
+waiting update, and a desktop notification ("Update ready") is shown by `foundation-update-notify` in the user session.
+If the new system does not start properly, boot counting returns to the one that worked.
 
-## What is missing
+## Bundles follow the system image
 
-- Applying an update on a booted image in QEMU: the first real test is described in [ota-test.md](../ota-test.md).
-- A `foundation update` command and an `Updates` interface (through `sysupdated`), including refusing an update from a
-  `-copy` slot.
-- Signing and verification of images (the test definitions use `Verify=no`), and a place to host them
-  ([ota-hosting.md](../ota-hosting.md)).
-- Per-install kernel command line: an updated kernel image is built with the label form of the data mounts, so on a
-  system with another ECP disk attached the old confusion can return ([storage](storage-and-persistence.md#known-gap)).
-- Bundles after an update: `foundation compat revalidate` exists; its behaviour across a real update is untested.
-- A recovery system for an update that breaks both slots.
+A bundle is built for exactly one system image (`built_for`, for example `ecp_0.2.0_20251101`). Its extension-release file
+names that base, so systemd never merges it against another. At every boot `foundation-bundles select` (before
+`systemd-sysext`) matches bundles to the running image: a bundle built for this image is put back (from the store of
+images that is kept while another image ran), and one that exists only for another image is switched off. So after an
+update the new image starts with its bundles ready, and after a rollback the old image gets its own bundles back, with no
+download either way. If something is still missing, `foundation-bundles-refresh.service` rebuilds it once the network is
+up (its failure never fails the boot), and `foundation compat refresh` does it on demand; bundles that already fit are
+left alone.
 
-See also: [boot and slots](boot-and-slots.md), [architecture.md](../architecture.md#updates-and-rollback-ab).
+## Making an update archive
+
+```
+scripts/build x86-64 --profile root                    # the root and kernel images
+scripts/make-update-archive 0.2.0 [--sign]             # dist/update/ecp_0.2.0-x86_64.tar.zst
+foundation update install dist/update/ecp_0.2.0-x86_64.tar.zst --unsigned
+```
+
+`--sign` signs `manifest.json` with the GPG key in `ECP_SIGN_KEY` (kept outside the repository). The system trusts a key
+only if its public half is installed as `/usr/share/foundation/keys/ersa-image-*.asc` or
+`/etc/foundation/keys/ersa-image-*.asc`; **no such key is shipped yet.**
+
+## What is tested, and what is not
+
+Tested: archive checks (tampering, extra or misplaced entries, wrong product or architecture, oversize, signatures), the slot
+writing with fake partitions, the command line, bundle store/select/refresh/prebuild with fake repositories, and that the
+archive script's output is accepted by the installer. **Not tested:** a real booted update in QEMU or on hardware (the
+first one is described in [ota-test.md](../ota-test.md)), mounting the new image to prepare bundles, the desktop
+notification, `bootctl` against real firmware.
+
+## Still missing
+
+- An update server, update discovery, and `ota.*` settings that something reads ([configuration](configuration.md);
+  [ota-hosting.md](../ota-hosting.md)). Updates are installed from a file you have.
+- A shipped image signing key and a release process for it.
+- Delta updates, and a recovery system for an update that breaks both slots.
+- Installing an update from a `-copy` slot is not specially handled.
+- The older `systemd-sysupdate` transfer definitions and `scripts/publish-update` remain as scaffolding for a future
+  download path; `foundation update install` does not use them.
+
+See also: [boot and slots](boot-and-slots.md), [repositories and bundles](repositories-and-bundles.md),
+[architecture.md](../architecture.md#updates-and-rollback-ab).
