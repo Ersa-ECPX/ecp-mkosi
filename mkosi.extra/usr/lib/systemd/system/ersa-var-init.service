@@ -1,0 +1,18 @@
+[Unit]
+Description=Regenerate state under /var that the image build creates
+# /etc/ssl/ca-bundle.pem links into /var/lib/ca-certificates, and the font cache lives in /var/cache,
+# but /var is a separate volume: an installed system starts with an empty one (the installer writes a
+# fresh data volume), so the build-time copies are not there. Rebuild them when the bundle is missing.
+DefaultDependencies=no
+After=local-fs.target
+Before=sysinit.target network-pre.target
+ConditionPathExists=!/var/lib/ca-certificates/ca-bundle.pem
+
+[Service]
+Type=oneshot
+ExecStart=/usr/sbin/update-ca-certificates
+ExecStart=-/usr/bin/fc-cache --system-only
+ExecStart=-/usr/sbin/restorecon -R /var/lib/ca-certificates /var/cache/fontconfig
+
+[Install]
+WantedBy=sysinit.target
