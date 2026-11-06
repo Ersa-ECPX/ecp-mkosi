@@ -16,9 +16,12 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
+# A checkout of yours (~/Dev/...) is used if it exists, otherwise the one scripts/fetch-sources cloned into .sources/.
+pick() { if [[ -n "${1:-}" ]]; then echo "$1"; elif [[ -d "$HOME/Dev/$2/.git" ]]; then echo "$HOME/Dev/$2"; else echo "$PWD/.sources/$2"; fi; }
+scripts/fetch-sources
 declare -A SRC=(
-  [ersa-bluetooth]="${ERSA_BLUETOOTH_SRC:-$HOME/Dev/ersa-bluetooth}"
-  [ersa-dialer]="${ERSA_DIALER_SRC:-$HOME/Dev/dialer}"
+  [ersa-bluetooth]="$(pick "${ERSA_BLUETOOTH_SRC:-}" ersa-bluetooth)"
+  [ersa-dialer]="$(pick "${ERSA_DIALER_SRC:-}" dialer)"
 )
 # Tarball name and top-level directory prefix, matching Source0 and %prep in each spec.
 declare -A TOP=([ersa-bluetooth]=ersa-bluetooth [ersa-dialer]=dialer)
@@ -38,6 +41,8 @@ for pkg in "${packages[@]}"; do
   [[ -f "$spec" ]] || { echo "missing $spec" >&2; exit 1; }
   commit="$(awk '$1 == "%global" && $2 == "commit" {print $3; exit}' "$spec")"
   [[ -n "$commit" ]] || { echo "$spec has no '%global commit'" >&2; exit 1; }
+  git -C "${SRC[$pkg]}" cat-file -e "$commit^{commit}" 2>/dev/null \
+    || git -C "${SRC[$pkg]}" fetch --quiet origin 2>/dev/null || true
   git -C "${SRC[$pkg]}" cat-file -e "$commit^{commit}" 2>/dev/null \
     || { echo "commit $commit not found in ${SRC[$pkg]}" >&2; exit 1; }
   top="${TOP[$pkg]}-$commit"

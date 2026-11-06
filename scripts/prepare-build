@@ -4,6 +4,9 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
+# Clone whatever is missing (foundation/, packages/ and the sources of the compiled packages).
+scripts/fetch-sources
+
 scripts/build-branding
 scripts/build-splash-package
 scripts/build-foundation-package

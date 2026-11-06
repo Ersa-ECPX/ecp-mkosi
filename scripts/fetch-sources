@@ -1,0 +1,36 @@
+#!/usr/bin/env bash
+# Clone (or, with ECP_UPDATE=1, fast-forward) everything the build compiles, so a fresh clone of this repository can
+# build an image with no other setup:
+#
+#   foundation/            the foundation, foundationd and installer sources      (github.com/Ersa-ECPX/foundation)
+#   packages/              the RPM specs and small branding package sources       (github.com/Ersa-ECPX/packages)
+#   .sources/ersa-bluetooth, .sources/dialer   the sources of the compiled packages (built at the commit each spec pins)
+#
+# Existing checkouts are left exactly as they are (they may hold your own changes) unless ECP_UPDATE=1. Run by
+# scripts/prepare-build; safe to run on its own. ECP_GIT_BASE changes where repositories are cloned from.
+set -euo pipefail
+cd "$(dirname "$0")/.."
+base="${ECP_GIT_BASE:-https://github.com/Ersa-ECPX}"
+
+fetch() {   # fetch DIRECTORY REPOSITORY
+  local dir="$1" repo="$2"
+  if [[ -d "$dir/.git" ]]; then
+    if [[ "${ECP_UPDATE:-0}" == 1 ]]; then
+      echo "updating $dir" >&2
+      git -C "$dir" pull --ff-only --quiet
+    fi
+  elif [[ -e "$dir" ]]; then
+    echo "$dir exists but is not a git checkout; leaving it alone" >&2
+  else
+    echo "cloning $base/$repo.git into $dir" >&2
+    mkdir -p "$(dirname "$dir")"
+    git clone --quiet "$base/$repo.git" "$dir"
+  fi
+}
+
+fetch foundation foundation
+fetch packages packages
+# The compiled packages are built from the commit pinned in their spec; a checkout you already have in ~/Dev is used
+# by scripts/build-rpms first (see there), these are the fallback.
+fetch .sources/ersa-bluetooth ersa-bluetooth
+fetch .sources/dialer Dialer

@@ -10,6 +10,32 @@ Documentation for every feature, with what is and is not tested: [docs/README.md
 
 The consolidated picture (layers, boot chain, storage, updates, management plane, security, decisions and what is verified) is in [docs/architecture.md](docs/architecture.md).
 
+## Repositories
+
+The platform is three repositories under [Ersa-ECPX](https://github.com/Ersa-ECPX):
+
+| Repository | Contents |
+| --- | --- |
+| `ecp-mkosi` (this one) | the mkosi configuration (`mkosi.*`), `branding/`, `scripts/` (build, test and release tools), `docs/` (architecture and feature documentation, the wiki source), `AGENTS.md` |
+| [`foundation`](https://github.com/Ersa-ECPX/foundation) | `foundation` (command line), `foundationd` (the D-Bus service), the graphical installer, the D-Bus contract and the unit tests |
+| [`packages`](https://github.com/Ersa-ECPX/packages) | RPM specs and the small sources of Ersa packages (`ersa-boot-splash`, ...), and the workflow that builds the RPM repository |
+
+A fresh clone of this repository builds an image with no other setup. `scripts/prepare-build` (run by `scripts/build`) calls `scripts/fetch-sources`, which clones what is missing: `foundation/` and `packages/` (git-ignored checkouts inside this one) and the sources of the compiled packages into `.sources/` (`ersa-bluetooth`, `dialer`, built at the commit each spec pins; a checkout in `~/Dev/` is used instead if you have one). Existing checkouts are never touched, so your own changes survive; `ECP_UPDATE=1 scripts/build ...` fast-forwards them first.
+
+```sh
+git clone https://github.com/Ersa-ECPX/ecp-mkosi.git && cd ecp-mkosi
+scripts/build x86-64 --profile installer      # installer medium, mkosi.output/
+scripts/build x86-64 --profile root --image-version 0.1.1    # the payload of an update
+```
+
+`scripts/build-foundation-package` builds the `foundation` RPMs from the working tree of `foundation/` using the spec in `packages/foundation/`; `scripts/build-splash-package` builds `ersa-boot-splash` from `packages/ersa-boot-splash/` and `branding/`; `scripts/build-wiki` reads `foundation/README.md`. The RPM repository published by the `packages` workflow is **not** consumed by the image build (nothing here sets it as an mkosi `Repositories=` source): packages are compiled locally from the cloned sources.
+
+### Releases
+
+`scripts/release 0.1.1` builds the installer image and the update for that version and uploads them to a GitHub release `v0.1.1` of this repository (`--draft` to review first, `--no-build` to reuse existing output). Images are compressed with zstd and split into `.partNN` files if they exceed GitHub's 2 GiB per-file limit. Releases are marked pre-release and are **not signed**: install an update with `foundation update install FILE --unsigned` until an image signing key exists.
+
+The foundation tests that need this repository (kernel command line, partition layout, wiki generator, a built RPM) skip unless `ECP_MKOSI_DIR` points at a checkout of it: `ECP_MKOSI_DIR=$PWD python3 -m unittest discover -s foundation/tests`. Run them this way after changing `mkosi.conf.d/`, `mkosi.repart.system/` or `docs/`.
+
 ## Status
 
 This repository defines a raw UEFI GPT image with systemd-boot and a destructive raw writer. It has **not** yet passed an mkosi build or boot test. Do not treat the installation path as a released installer or the update design as an operational atomic updater. The raw writer is suitable only for a dedicated disk whose data can be erased.
@@ -93,7 +119,7 @@ Zen Browser is not in the Tumbleweed repository (its Firefox is `MozillaFirefox`
 
 ### Foundation
 
-`foundation` is the command line of the Ersa Compute Platform and `foundationd` is the management service behind it (Python, GLib/GDBus, polkit). The command line is only a client: every change is a request to the service over D-Bus, which authorizes it with polkit and runs it as a job in a separate worker process. The full guide (architecture, how a request travels, how to run it, test it and add to it) is [foundation/README.md](foundation/README.md); the contract is [foundation/data/dbus/org.ersa.Foundation1.xml](foundation/data/dbus/org.ersa.Foundation1.xml); the design notes are in [docs/foundationd.md](docs/foundationd.md).
+`foundation` is the command line of the Ersa Compute Platform and `foundationd` is the management service behind it (Python, GLib/GDBus, polkit). The command line is only a client: every change is a request to the service over D-Bus, which authorizes it with polkit and runs it as a job in a separate worker process. The full guide (architecture, how a request travels, how to run it, test it and add to it) is [foundation/README.md](https://github.com/Ersa-ECPX/foundation/blob/main/README.md); the contract is [foundation/data/dbus/org.ersa.Foundation1.xml](https://github.com/Ersa-ECPX/foundation/blob/main/data/dbus/org.ersa.Foundation1.xml); the design notes are in [docs/foundationd.md](docs/foundationd.md).
 
 ```sh
 foundation status                       # system, running boot slot, storage, services
@@ -106,11 +132,11 @@ foundation ext list                     # sysext and confext images
 foundation config set ota.channel testing
 ```
 
-Implemented: boot state and slots (selection, copy, release), reboot, Flatpak applications (libflatpak), compat RPMs as system extensions, sysext/confext management, settings, and jobs with progress and cancellation. Not implemented: OTA updates (`Updates`), installing to a disk (`Deploy`), diagnostics, the recovery entry. The unit and test results are listed in [foundation/README.md](foundation/README.md#verification-status); read that list before trusting any of it on hardware.
+Implemented: boot state and slots (selection, copy, release), reboot, Flatpak applications (libflatpak), compat RPMs as system extensions, sysext/confext management, settings, and jobs with progress and cancellation. Not implemented: OTA updates (`Updates`), installing to a disk (`Deploy`), diagnostics, the recovery entry. The unit and test results are listed in [foundation/README.md](https://github.com/Ersa-ECPX/foundation/blob/main/README.md#verification-status); read that list before trusting any of it on hardware.
 
 ### Calls from the desktop through a paired phone
 
-`ersa-bluetooth` (the `org.openersa.Bluetooth` D-Bus bridge for HFP call control, PBAP contacts and call history, AVRCP media control republished as MPRIS, and ANCS notifications) and `ersa-dialer` (a GNOME dialer that is a client of it) let a desktop answer, decline and place calls through a Bluetooth-paired phone, like macOS does with an iPhone. They are part of the default image. The specs are `packages/ersa-bluetooth/ersa-bluetooth.spec` and `packages/ersa-dialer/ersa-dialer.spec`, each pinned to an exact upstream commit. They compile native code, so `scripts/build-rpms` builds them in an openSUSE Tumbleweed container (needs podman) from `~/Dev/ersa-bluetooth` and `~/Dev/dialer` and puts the RPMs in `mkosi.packages/`. `scripts/build` runs it automatically when the RPMs are missing or the pinned commit changed.
+`ersa-bluetooth` (the `org.openersa.Bluetooth` D-Bus bridge for HFP call control, PBAP contacts and call history, AVRCP media control republished as MPRIS, and ANCS notifications) and `ersa-dialer` (a GNOME dialer that is a client of it) let a desktop answer, decline and place calls through a Bluetooth-paired phone, like macOS does with an iPhone. They are part of the default image. The specs are `ersa-bluetooth/ersa-bluetooth.spec` and `ersa-dialer/ersa-dialer.spec` in the `packages` repository, each pinned to an exact upstream commit. They compile native code, so `scripts/build-rpms` builds them in an openSUSE Tumbleweed container (needs podman) from `~/Dev/ersa-bluetooth` and `~/Dev/dialer` and puts the RPMs in `mkosi.packages/`. `scripts/build` runs it automatically when the RPMs are missing or the pinned commit changed.
 
 The user preset enables `ersa-bluetooth.service` for the desktop user. Open items: `ersa-bluetooth` has no license file (its PKGBUILD says `unknown`), and no pairing, call or phonebook flow has been tested against a real phone.
 

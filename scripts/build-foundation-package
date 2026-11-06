@@ -18,7 +18,9 @@ tar --exclude='__pycache__' --exclude='*.pyc' \
     -czf "$build_dir/SOURCES/foundation-$version.tar.gz" foundation
 
 rpm --initdb --dbpath "$build_dir/rpmdb"
-rpmbuild --define "_topdir $build_dir" \
+# --nodeps: the spec's BuildRequires name openSUSE packages (for the container build in the packages repository); this
+# host build runs the same %check with the host's own python, so rpm's dependency check is skipped.
+rpmbuild --nodeps --define "_topdir $build_dir" \
   --define "_dbpath $build_dir/rpmdb" \
   --define "_tmppath $build_dir/tmp" \
   --define "_sourcedir $build_dir/SOURCES" \

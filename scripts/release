@@ -1,0 +1,70 @@
+#!/usr/bin/env bash
+# Build both images for a version and publish them as a GitHub release of this repository.
+#
+#   scripts/release 0.1.1                # build the installer image and the update, upload them to the release v0.1.1
+#   scripts/release 0.1.1 --draft        # create the release as a draft (review it on GitHub, then publish)
+#   scripts/release 0.1.1 --no-build     # reuse what is already in mkosi.output/ (and mkosi.output/root/)
+#
+# What it makes (everything lands in dist/release/<version>/ and is uploaded):
+#   ecp-installer_<v>-x86_64.raw.zst[.partNN]   the installer medium (write it to a USB drive or boot it in QEMU)
+#   ecp_<v>-x86_64.tar.zst                      the update `foundation update install` takes
+#   SHA256SUMS
+# GitHub allows 2 GiB per release file, so a compressed image larger than that is split into .partNN files:
+#   cat ecp-installer_<v>-x86_64.raw.zst.part* | zstd -d > ecp-installer_<v>.raw
+#
+# It needs mkosi (see scripts/build), zstd and an authenticated `gh`. The sources it compiles are cloned by
+# scripts/prepare-build (via scripts/fetch-sources). Nothing is signed: updates are installed with --unsigned until an
+# image signing key exists, and the release is marked as a pre-release.
+set -euo pipefail
+cd "$(dirname "$0")/.."
+
+version="${1:-}"; shift || true
+[[ "$version" =~ ^[0-9]+(\.[0-9]+)*([.+-][A-Za-z0-9.]+)?$ ]] || { echo "usage: scripts/release VERSION [--draft] [--no-build]" >&2; exit 2; }
+draft=() ; build=1
+for arg in "$@"; do
+  case "$arg" in
+    --draft) draft=(--draft) ;;
+    --no-build) build=0 ;;
+    *) echo "unknown option: $arg" >&2; exit 2 ;;
+  esac
+done
+for tool in zstd gh git; do command -v "$tool" >/dev/null || { echo "$tool is required" >&2; exit 1; }; done
+gh auth status >/dev/null 2>&1 || { echo "gh is not logged in (gh auth login)" >&2; exit 1; }
+repo="$(gh repo view --json nameWithOwner -q .nameWithOwner 2>/dev/null || echo Ersa-ECPX/ecp-mkosi)"
+tag="v$version"
+if gh release view "$tag" -R "$repo" >/dev/null 2>&1; then echo "the release $tag already exists in $repo" >&2; exit 1; fi
+
+if (( build )); then
+  scripts/build x86-64 --profile installer --image-version "$version"
+  scripts/build x86-64 --profile root --image-version "$version"
+  scripts/make-update-archive "$version" >/dev/null
+fi
+
+out="dist/release/$version"
+rm -rf "$out"; mkdir -p "$out"
+installer="mkosi.output/ecp-installer_${version}.raw"
+update="dist/update/ecp_${version}-x86_64.tar.zst"
+for f in "$installer" "$update"; do [[ -f "$f" ]] || { echo "missing $f" >&2; exit 1; }; done
+
+echo "compressing the installer image ..." >&2
+zstd -T0 -10 -q -f -o "$out/ecp-installer_${version}-x86_64.raw.zst" "$installer"
+cp --reflink=auto "$update" "$out/"
+limit=$((1900 * 1024 * 1024))
+for f in "$out"/*.zst; do
+  if (( $(stat -c %s "$f") > limit )); then
+    echo "$(basename "$f") is larger than 1.9 GiB; splitting it" >&2
+    split -b 1900M -d -a 2 "$f" "$f.part" && rm "$f"
+  fi
+done
+( cd "$out" && sha256sum --binary * > SHA256SUMS )
+ls -la "$out" >&2
+
+notes="Early preview of the Ersa Compute Platform ${version}. Tested in virtual machines only (QEMU/KVM, UEFI); real hardware is untested.
+
+- ecp-installer_${version}-x86_64.raw.zst: the installer medium (boot it in a VM, or write it to a USB drive).
+- ecp_${version}-x86_64.tar.zst: an update for an installed system: \`foundation update install FILE --unsigned\`. It is not signed yet.
+- Files larger than 2 GiB are split: \`cat FILE.partNN... | zstd -d > image.raw\`.
+Check downloads against SHA256SUMS."
+gh release create "$tag" -R "$repo" --target main --prerelease "${draft[@]}" \
+  --title "Ersa Compute Platform ${version} (early preview)" --notes "$notes" "$out"/*
+echo "released $tag: https://github.com/$repo/releases/tag/$tag" >&2

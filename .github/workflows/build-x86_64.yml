@@ -17,6 +17,11 @@ jobs:
       - name: Check out source
         uses: actions/checkout@v4
 
+      - name: Check out foundation and the package specs (separate repositories, expected inside this one)
+        run: |
+          git clone --depth 1 https://github.com/Ersa-ECPX/foundation.git foundation
+          git clone --depth 1 https://github.com/Ersa-ECPX/packages.git packages
+
       - name: Install build dependencies
         run: |
           sudo apt-get update
