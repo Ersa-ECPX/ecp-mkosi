@@ -19,3 +19,4 @@ __pycache__/
 mkosi.local.conf
 mkosi.installer.extra/
 docs/wiki/
+dist/
