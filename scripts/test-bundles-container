@@ -1,0 +1,53 @@
+#!/usr/bin/env bash
+# Run the repository layer and the bundle builder against the live openSUSE and Packman repositories inside a
+# Tumbleweed container (the host has no libsolv or RPM database of the target). Needs podman and network.
+#
+#   scripts/test-bundles-container            # resolve and download a few packages, check signatures
+#   scripts/test-bundles-container catalog    # build the real "codecs" catalog bundle (large download)
+set -euo pipefail
+cd "$(dirname "$0")/.."
+work="$(mktemp -d)"
+trap 'rm -rf "$work"' EXIT
+cp foundation/data/keys/*.asc "$work/"
+cat > "$work/Containerfile" <<'CF'
+FROM registry.opensuse.org/opensuse/tumbleweed:latest
+RUN zypper -n --gpg-auto-import-keys in --no-recommends python313 python313-solv gpg2 \
+ && zypper -n in --no-recommends libavcodec62 libavformat62 libavutil60 libswresample6 libswscale9 libavfilter11 libavdevice62 libva2 \
+ && zypper clean -a
+CF
+podman build -q -t ecp-bundles-test -f "$work/Containerfile" "$work" >/dev/null
+script='
+import os, shutil, sys, time
+sys.path.insert(0, "/src")
+from foundationd.backends import bundles, repos
+from foundationd.backends.runner import run
+for src, dst in (("/src/data/repos.d", "/usr/lib/foundation/repos.d"), ("/src/data/keys", "/usr/share/foundation/keys"),
+                 ("/src/data/catalog.d", "/usr/lib/foundation/catalog.d")):
+    shutil.copytree(src, dst, dirs_exist_ok=True)
+os.makedirs("/var/lib/extensions", exist_ok=True)
+open("/tmp/os-release", "w").write("ID=\"opensuse-tumbleweed\"\n")
+paths = {"root": "/", "state": "/tmp/state", "os_release": "/tmp/os-release"}
+class Ctx:
+    def step(self, i, t): print(f"[{i}] {t}", flush=True)
+    def progress(self, f): pass
+    def log(self, t): print("   ", t[:200], flush=True)
+    def commit(self): pass
+def runner(cmd, timeout=60, input_bytes=None):
+    if cmd[0] == "systemd-sysext":
+        return 0, "[]", ""
+    return run(cmd, timeout, input_bytes)
+repos.set_enabled(paths, "packman-essentials", True)
+if sys.argv[1:] == ["catalog"]:
+    result = bundles.install_catalog(paths, Ctx(), "codecs", runner=runner)
+    print("bundle built:", len(result["packages"]), "packages,", result["files"], "files")
+else:
+    enabled = repos.enabled(paths)
+    for r in enabled:
+        print(repos.refresh(r, paths))
+    pool = repos.Pool(enabled, paths)
+    todo, skipped, _ = pool.resolve([{"name": "libavcodec62", "repo": "packman-essentials"}, {"name": "libx264-165", "repo": "packman-essentials"}])
+    print("would install", len(todo), "packages; first:", [(p["name"], p["evr"], p["repo"]) for p in todo[:3]])
+    got = repos.download(todo[:3], enabled, "/tmp/rpms", runner)
+    print("downloaded and signature-checked:", [os.path.basename(g["file"]) for g in got])
+'
+exec podman run --rm -v "$PWD/foundation:/src:ro,z" ecp-bundles-test python3.13 -c "$script" "$@"
