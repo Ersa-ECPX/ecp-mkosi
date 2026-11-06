@@ -12,7 +12,7 @@
 # GitHub allows 2 GiB per release file, so a compressed image larger than that is split into .partNN files:
 #   cat ecp-installer_<v>-x86_64.raw.zst.part* | zstd -d > ecp-installer_<v>.raw
 #
-# It needs mkosi (see scripts/build), zstd and an authenticated `gh`. Run it as yourself: the mkosi steps use sudo. The sources it compiles are cloned by
+# It needs mkosi (see scripts/build), zstd and an authenticated `gh`. The sources it compiles are cloned by
 # scripts/prepare-build (via scripts/fetch-sources). Nothing is signed: updates are installed with --unsigned until an
 # image signing key exists, and the release is marked as a pre-release.
 set -euo pipefail
@@ -35,13 +35,8 @@ tag="v$version"
 if gh release view "$tag" -R "$repo" >/dev/null 2>&1; then echo "the release $tag already exists in $repo" >&2; exit 1; fi
 
 if (( build )); then
-  # Clone and compile the packages as yourself (git, podman and your gh login are yours) ...
-  scripts/prepare-build
-  # ... and run mkosi as root: it labels files and mounts, and its outputs and /tmp/ecp-work are root-owned.
-  as_root=()
-  [[ $EUID -eq 0 ]] || as_root=(sudo env "PATH=$PATH")
-  "${as_root[@]}" env ECP_SKIP_PREPARE=1 scripts/build x86-64 --profile installer --image-version "$version"
-  "${as_root[@]}" env ECP_SKIP_PREPARE=1 scripts/build x86-64 --profile root --image-version "$version"
+  scripts/build x86-64 --profile installer --image-version "$version"
+  scripts/build x86-64 --profile root --image-version "$version"
   scripts/make-update-archive "$version" >/dev/null
 fi
 
