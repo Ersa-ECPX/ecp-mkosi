@@ -42,7 +42,10 @@ for p in json.load(sys.stdin)["partitiontable"]["partitions"]:
 else:
     sys.exit("no ESP in the image")')"
 # mkosi leaves its output read-only.
-chmod u+w "$image"
+[[ -w "$image" ]] || chmod u+w "$image" 2>/dev/null || {
+  echo "$image is not writable (owned by $(stat -c %U "$image")); run: sudo $0 $arch" >&2
+  exit 1
+}
 spec="$image@@$start"
 mmd -D s -i "$spec" ::loader 2>/dev/null || true
 mmd -D s -i "$spec" ::loader/extensions 2>/dev/null || true
