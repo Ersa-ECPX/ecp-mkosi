@@ -3,9 +3,13 @@
 
     scripts/build-wiki [OUTPUT]        default: docs/wiki/index.html
 
-The page has a sidebar, full-text search, light and dark themes and no external files, fonts or scripts, so it works
-from a file:// URL, a USB stick or any static host. It is generated: edit the Markdown under docs/ (and
-foundation/README.md) and run this again.
+    scripts/build-wiki [OUTPUT] [--cname DOMAIN]
+
+The page has a sidebar, full-text search, light and dark themes and no external fonts or scripts, so it works from a
+file:// URL, a USB stick or any static host. Images that the Markdown refers to are copied to an assets/ folder beside
+the page. The output folder is ready to publish: it also gets an empty `.nojekyll` (GitHub Pages must not process it),
+and a `CNAME` file when --cname is given (for example `--cname compute.ersa.dev`). It is generated: edit the Markdown
+under docs/ (and foundation/README.md) and run this again.
 
 What is included, and how it is grouped, is described by docs/wiki.json: a list of categories (Architecture,
 Foundation, App support, Installer, ...), each with a one-line description and its pages in reading order. Any Markdown
@@ -23,6 +27,7 @@ import json
 import os
 import posixpath
 import re
+import shutil
 import subprocess
 import sys
 
@@ -51,6 +56,12 @@ class Converter:
 
     # inline
     def inline(self, text):
+        pictures = []
+
+        def picture(match):
+            pictures.append(self._image(match))
+            return f"\x03{len(pictures) - 1}\x03"
+        text = re.sub(r"!\[([^\]]*)\]\(([^)\s]+)\)", picture, text)
         codes = []
 
         def stash(match):
@@ -61,7 +72,15 @@ class Converter:
         text = re.sub(r"\[([^\]]+)\]\(([^)\s]+)\)", self._link, text)
         text = re.sub(r"\*\*(.+?)\*\*", r"<strong>\1</strong>", text)
         text = re.sub(r"(?<![\w*])\*(?!\s)(.+?)(?<!\s)\*(?![\w*])", r"<em>\1</em>", text)
-        return re.sub(r"\x00(\d+)\x00", lambda m: "<code>" + html.escape(codes[int(m.group(1))], quote=False) + "</code>", text)
+        text = re.sub(r"\x00(\d+)\x00", lambda m: "<code>" + html.escape(codes[int(m.group(1))], quote=False) + "</code>", text)
+        return re.sub(r"\x03(\d+)\x03", lambda m: pictures[int(m.group(1))], text)
+
+    def _image(self, match):
+        alt, target = match.group(1), html.unescape(match.group(2))
+        source = self.resolve_image(target) if getattr(self, "resolve_image", None) else None
+        if source is None:
+            return f'<span class="filelink" title="{html.escape(target)}">[image: {html.escape(alt)}]</span>'
+        return f'<img src="{html.escape(source)}" alt="{html.escape(alt)}" loading="lazy">'
 
     def _link(self, match):
         label, target = match.group(1), html.unescape(match.group(2))
@@ -123,7 +142,13 @@ class Converter:
                 while i < n and lines[i].strip() and not self._starts_block(lines, i):
                     paragraph.append(lines[i].strip())
                     i += 1
-                out.append(f"<p>{self.inline(' '.join(paragraph))}</p>")
+                rendered = self.inline(" ".join(paragraph))
+                only = re.fullmatch(r'(<img [^>]*alt="([^"]*)"[^>]*>)', rendered)
+                if only:
+                    caption = f"<figcaption>{only.group(2)}</figcaption>" if only.group(2) else ""
+                    out.append(f"<figure>{only.group(1)}{caption}</figure>")
+                else:
+                    out.append(f"<p>{rendered}</p>")
         return "\n".join(out)
 
     @staticmethod
@@ -285,13 +310,13 @@ def plain(markdown):
     return re.sub(r"\s+", " ", text).strip()
 
 
-def build(output=None, pages=None):
+def build(output=None, pages=None, cname=""):
     pages = pages or page_list()
     blurbs = {category["title"]: category["blurb"] for category in categories()}
     short = labels()
     by_path = {os.path.normpath(os.path.join(ROOT, src)): pid for pid, src, _g in pages}
     sections, nav, index = [], {}, []
-    problems = []
+    problems, assets = [], {}                 # assets: published name -> source file
     for pid, src, group in pages:
         directory = posixpath.dirname(src)
         markdown = read(src)
@@ -307,6 +332,18 @@ def build(output=None, pages=None):
             return None
         pid_of = {s: p for p, s, _g in pages}
         converter = Converter(resolve)
+
+        def resolve_image(target, directory=directory, src=src):
+            absolute = os.path.normpath(os.path.join(ROOT, directory, target))
+            if not os.path.isfile(absolute):
+                problems.append((src, target))
+                return None
+            name = os.path.basename(absolute)
+            if assets.get(name, absolute) != absolute:                    # another file with the same name
+                name = re.sub(r"[^A-Za-z0-9._-]", "-", os.path.relpath(absolute, ROOT))
+            assets[name] = absolute
+            return f"assets/{name}"
+        converter.resolve_image = resolve_image
         body = converter.convert(markdown)
         status = badge(markdown)
         label = f'<span class="badge {status[1]}">{status[0]}</span>' if status else ""
@@ -327,9 +364,18 @@ def build(output=None, pages=None):
     document = TEMPLATE.replace("{{SECTIONS}}", "\n".join(sections)).replace("{{NAV}}", json.dumps(nav)) \
         .replace("{{INDEX}}", json.dumps(index).replace("</", "<\\/")).replace("{{GENERATED}}", html.escape(generated))
     if output:
-        os.makedirs(os.path.dirname(os.path.abspath(output)), exist_ok=True)
+        site = os.path.dirname(os.path.abspath(output))
+        os.makedirs(site, exist_ok=True)
         with open(output, "w", encoding="utf-8") as handle:
             handle.write(document)
+        if assets:
+            os.makedirs(os.path.join(site, "assets"), exist_ok=True)
+            for name, source in assets.items():
+                shutil.copyfile(source, os.path.join(site, "assets", name))
+        open(os.path.join(site, ".nojekyll"), "w").close()                  # GitHub Pages: serve the files as they are
+        if cname:
+            with open(os.path.join(site, "CNAME"), "w", encoding="utf-8") as handle:
+                handle.write(cname.strip() + "\n")
     return document, problems
 
 
@@ -377,6 +423,8 @@ pre:hover .copy, .copy:focus { opacity:1; }
 .table { overflow-x:auto; margin:1rem 0; } table { border-collapse:collapse; width:100%; font-size:.92rem; }
 th, td { border:1px solid var(--line); padding:.45rem .65rem; text-align:left; vertical-align:top; } th { background:var(--panel); }
 .filelink { border-bottom:1px dotted var(--dim); cursor:help; }
+article img { max-width:100%; height:auto; border-radius:.7rem; border:1px solid var(--line); display:block; margin:.4rem auto; }
+figure { margin:1.4rem 0; } figcaption { color:var(--dim); font-size:.85rem; text-align:center; margin-top:.4rem; }
 .page { display:none; } .page.on { display:block; }
 .results { display:none; } .results.on { display:block; } .results a { display:block; padding:.7rem .9rem; margin:.5rem 0; border:1px solid var(--line); border-radius:.6rem; color:var(--text); text-decoration:none; }
 .results a:hover { border-color:var(--accent); } .results b { color:var(--accent); } .results small { display:block; color:var(--dim); margin-top:.2rem; }
@@ -476,10 +524,17 @@ $(".theme").addEventListener("click", () => {
 
 
 def main(argv):
-    output = argv[1] if len(argv) > 1 else os.path.join(ROOT, "docs/wiki/index.html")
-    document, problems = build(output)
+    arguments, cname, i = [], "", 1
+    while i < len(argv):
+        if argv[i] == "--cname" and i + 1 < len(argv):
+            cname, i = argv[i + 1], i + 2
+        else:
+            arguments.append(argv[i])
+            i += 1
+    output = arguments[0] if arguments else os.path.join(ROOT, "docs/wiki/index.html")
+    document, problems = build(output, cname=cname)
     for source, target in problems:
-        print(f"note: {source}: link to {target} is not part of the wiki; shown as plain text", file=sys.stderr)
+        print(f"note: {source}: {target} is not part of the wiki; shown as plain text", file=sys.stderr)
     pages = len(re.findall(r'class="page"', document))
     print(f"wrote {output} ({pages} pages, {len(document) // 1024} KiB)")
     return 0

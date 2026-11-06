@@ -65,7 +65,22 @@ compare them with the projects' own pages.
 
 Defined in zypp's `.repo` format: shipped ones in `/usr/lib/foundation/repos.d`, local ones (a section with the same name
 replaces a shipped one) in `/etc/foundation/repos.d`. Shipped: **`opensuse-oss`** (on) and **`packman-essentials`**
-(off until a catalog bundle asks for it). To add your own, drop a file such as:
+(off until a catalog bundle asks for it).
+
+### Adding your own
+
+```
+foundation repo add myrepo https://example.org/repo/ --key myrepo.asc --name "My repository"
+foundation repo refresh myrepo
+foundation repo remove myrepo
+```
+
+`repo add` reads the publisher's armoured public key, **shows its fingerprint and owner, and asks before trusting it**.
+The definition goes to `/etc/foundation/repos.d/myrepo.repo` and the key to `/etc/foundation/keys/myrepo.asc`. The
+repository must be https and have signed metadata. `repo remove` deletes both (shipped repositories can only be turned
+off, and one that a bundle still draws packages from cannot be removed).
+
+By hand, the same result is a file in `/etc/foundation/repos.d`, such as:
 
 ```
 [mine]
