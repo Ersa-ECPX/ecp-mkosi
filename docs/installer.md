@@ -165,22 +165,25 @@ polkit rule in the booted installer image, and keyboard navigation and screen re
 
 - One root image: the installer medium and installed systems use the same root (the installer
   profile only changes the partition layout and output name). The installer itself is a **system
-  extension (sysext)**: `scripts/build-installer-medium` turns the `foundation-installer` RPM into
-  `ersa-installer.sysext.raw` (EROFS, with an `extension-release` for `ID=opensuse-tumbleweed`) and copies it
-  into the installer image's ESP at `/loader/extensions/`, where systemd-stub hands it to the booted
-  system and systemd-sysext merges it into `/usr`. It carries the app, the hidden launcher and
-  `ersa-live-session.service`, which creates `liveuser` (password `liveuser`), passwordless sudo, the
-  polkit rule, GDM automatic login and the installer autostart under `/etc` and `/home`, which on the
-  medium are the writable overlay and data volume, never the root image.
-- Installed systems never get any of it: the root is the production root, and Deploy skips
-  `loader/extensions` when it copies the ESP (tested). The base image only needs `python3-gobject`
-  (added) for the app; the GTK and libadwaita typelibs were already in it.
-- Build order: `scripts/build-foundation-package`, `scripts/build x86-64 --profile installer`,
-  `scripts/build-installer-medium`.
+  extension (sysext)**: `scripts/build-installer-sysext` turns the `foundation-installer` RPM into
+  `ersa-installer.raw` (EROFS, with `extension-release.ersa-installer` for `ID=opensuse-tumbleweed`),
+  and the installer profile puts it on the medium's **data volume** at `/var/lib/extensions/`
+  (`ExtraTrees=mkosi.installer.extra`), where `systemd-sysext.service` (enabled in the preset) merges it
+  into `/usr` at boot. It carries the app, the hidden launcher and `ersa-live-session.service`, which
+  creates `liveuser` (password `liveuser`), passwordless sudo, the polkit rule, GDM automatic login and
+  the installer autostart under `/etc` and `/home` (the medium's overlay and data volume, never the root image).
+- Why not the ESP: systemd-stub's `/loader/extensions/` and `/.extra/sysext` are for extending the
+  *initrd* (merged there, unsigned images rejected by the stricter policy, gone after switch-root), and
+  the main system's `systemd-sysext.service` only looks in `/etc`, `/run` and `/var/lib/extensions`.
+  (Found 2026-11-06 by booting: "no extensions found".)
+- Installed systems never get any of it: the root is the production root and Deploy writes a fresh data
+  volume. The base image needs `python3-gobject` for the app (added).
+- Build order: `scripts/build-foundation-package`, then `scripts/build x86-64 --profile installer`
+  (which runs `scripts/build-installer-sysext` first).
 - **History:** the first installer image built `liveuser` into the root, so installs from it carried
-  it; the sysext (2026-11-06) replaces that. **Not yet verified in a booted image:** that systemd-stub
-  passes the sysext through, that it merges before GDM and the live-session unit runs, that the
-  `extension-release` matches, and `getent passwd liveuser` being empty after installing. The script and
-  the sysext contents were checked on a fake image only.
+  it; the sysext (2026-11-06) replaces that. **Not yet verified in a booted image:** that
+  `systemd-sysext` merges it (the first attempt, on the ESP, did not), that the `extension-release`
+  matches, that the live session starts before GDM, and `getent passwd liveuser` being empty after
+  installing. The script was checked by extracting the sysext only.
 - Initial Setup handles the user on the installed system.
 - Ventoy compatibility is a separate spike; a `dd`-able image comes first.

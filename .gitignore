@@ -17,3 +17,4 @@ __pycache__/
 *.tar
 *.SHA256SUMS
 mkosi.local.conf
+mkosi.installer.extra/

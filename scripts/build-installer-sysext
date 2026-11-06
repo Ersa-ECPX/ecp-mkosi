@@ -1,0 +1,35 @@
+#!/usr/bin/env bash
+# Build the installer as a system extension (sysext) from the foundation-installer RPM and stage it where
+# the installer profile puts it on the medium's data volume: /var/lib/extensions/ersa-installer.raw.
+# systemd-sysext.service merges everything in /var/lib/extensions into /usr at boot, so the root image
+# stays identical to the normal one, and Deploy (which writes a fresh data volume) never copies it.
+# scripts/build runs this before building the installer profile.
+#
+#   scripts/build-installer-sysext [x86-64]
+set -euo pipefail
+cd "$(dirname "$0")/.."
+arch="${1:-x86-64}"
+rpm="$(ls -1 mkosi.packages/foundation-installer-*.rpm 2>/dev/null | sort -V | tail -n 1 || true)"
+[[ -n "$rpm" ]] || { echo "no foundation-installer RPM; run scripts/build-foundation-package" >&2; exit 1; }
+for tool in rpm2cpio cpio mkfs.erofs; do
+  command -v "$tool" >/dev/null || { echo "$tool is required" >&2; exit 1; }
+done
+
+work="$(mktemp -d)"
+trap 'rm -rf "$work"' EXIT
+tree="$work/tree"
+mkdir -p "$tree"
+(cd "$tree" && rpm2cpio "$OLDPWD/$rpm" | cpio --quiet -idm)
+os_id="$(sed -n 's/^ID="\{0,1\}\([^"]*\)"\{0,1\}$/\1/p' mkosi.extra/usr/lib/os-release | head -n 1)"
+install -d "$tree/usr/lib/extension-release.d"
+# The file name must match the image name (ersa-installer.raw -> extension-release.ersa-installer).
+{
+  echo "ID=$os_id"
+  echo "ARCHITECTURE=$arch"
+} > "$tree/usr/lib/extension-release.d/extension-release.ersa-installer"
+
+out=mkosi.installer.extra/var/lib/extensions
+rm -rf mkosi.installer.extra
+install -d "$out"
+mkfs.erofs -zlz4 --quiet "$out/ersa-installer.raw" "$tree" >/dev/null
+echo "built $out/ersa-installer.raw ($(stat -c %s "$out/ersa-installer.raw") bytes)"

@@ -30,9 +30,12 @@ if (( avail_gib < 15 )); then
 fi
 export TMPDIR="$work/tmp" XDG_CACHE_HOME="$work/cache"
 
-# Extra arguments go to mkosi.
-mkosi --architecture="$arch" "$@" build
-# The installer image also needs its installer, a sysext added to the ESP after the build.
+# The installer image carries its installer as a sysext on its data volume; stage it first.
+installer=
 case " $* " in
-  *" --profile installer "*|*" --profile=installer "*|*" -p installer "*) scripts/build-installer-medium "$arch" ;;
+  *" --profile installer "*|*" --profile=installer "*|*" -p installer "*) installer=1 ;;
 esac
+[[ -z "$installer" ]] || scripts/build-installer-sysext "$arch"
+
+# Extra arguments go to mkosi.
+exec mkosi --architecture="$arch" "$@" build
