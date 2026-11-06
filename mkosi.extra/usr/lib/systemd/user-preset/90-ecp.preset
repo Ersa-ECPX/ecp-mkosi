@@ -2,3 +2,6 @@
 enable ersa-bluetooth.service
 # Records that first-boot setup is complete, after GNOME Initial Setup finishes.
 enable foundation-provisioning.path
+# Tells the user when an installed system update waits for a restart.
+enable foundation-update-notify.path
+enable foundation-update-notify.service
