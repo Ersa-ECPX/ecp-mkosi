@@ -7,9 +7,11 @@ The page has a sidebar, full-text search, light and dark themes and no external 
 from a file:// URL, a USB stick or any static host. It is generated: edit the Markdown under docs/ (and
 foundation/README.md) and run this again.
 
-What is included, in this order: docs/README.md (Overview), docs/features/*.md in the order the overview lists them,
-then the design documents and the developer guide. Links between included pages become in-page links; a link to
-anything else (a source file, say) is shown as plain text so nothing is left dangling.
+What is included, and how it is grouped, is described by docs/wiki.json: a list of categories (Architecture,
+Foundation, App support, Installer, ...), each with a one-line description and its pages in reading order. Any Markdown
+file under docs/ that the file does not mention is added under "Other", so nothing is silently left out. Links between
+included pages become in-page links; a link to anything else (a source file, say) is shown as plain text so nothing is
+left dangling.
 
 The Markdown converter handles exactly what these documents use (headings, paragraphs, fenced code, tables whose cells
 may hold `|` inside code, nested lists, emphasis, code spans, links, rules) and escapes all other HTML.
@@ -25,7 +27,7 @@ import subprocess
 import sys
 
 ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
-DESIGN = ["architecture", "foundationd", "installer", "provisioning", "branding", "ota-hosting", "ota-test"]
+
 
 
 # -- Markdown ----------------------------------------------------------------------------------
@@ -221,23 +223,49 @@ def read(path):
         return handle.read()
 
 
+def page_id(path):
+    if path == "docs/README.md":
+        return "overview"
+    if path == "foundation/README.md":
+        return "developer-guide"
+    stem = path[len("docs/"):-3] if path.startswith("docs/") else path[:-3]
+    return stem
+
+
+def categories():
+    """[{"title", "blurb", "pages": [{"path", "label"?}, ...]}] from docs/wiki.json, plus an "Other" group for unlisted documents."""
+    with open(os.path.join(ROOT, "docs/wiki.json"), encoding="utf-8") as handle:
+        result = json.load(handle)["categories"]
+    for category in result:
+        category["pages"] = [entry if isinstance(entry, dict) else {"path": entry} for entry in category["pages"]]
+    listed = {entry["path"] for category in result for entry in category["pages"]}
+    found = []
+    for directory in ("docs", "docs/features"):
+        for name in sorted(os.listdir(os.path.join(ROOT, directory))):
+            path = f"{directory}/{name}"
+            if name.endswith(".md") and path not in listed:
+                found.append(path)
+    if found:
+        result.append({"title": "Other", "blurb": "Documents not yet placed in a category.", "pages": [{"path": f} for f in found]})
+    for category in result:
+        for entry in category["pages"]:
+            if not os.path.isfile(os.path.join(ROOT, entry["path"])):
+                raise SystemExit(f"docs/wiki.json lists {entry['path']}, which does not exist")
+    return result
+
+
 def page_list():
-    """[(id, source path, group)] in reading order."""
-    pages = [("overview", "docs/README.md", "Start")]
-    overview = read("docs/README.md")
-    table = overview.split("\n## Features", 1)[1].split("\n## ", 1)[0] if "\n## Features" in overview else overview
-    listed = [m.group(1) for m in re.finditer(r"\(features/([a-z0-9-]+)\.md\)", table)]
-    on_disk = sorted(f[:-3] for f in os.listdir(os.path.join(ROOT, "docs/features")) if f.endswith(".md"))
-    order = [n for n in dict.fromkeys(listed) if n in on_disk] + [n for n in on_disk if n not in listed]
-    pages += [(f"features/{n}", f"docs/features/{n}.md", "Features") for n in order]
-    pages += [(n, f"docs/{n}.md", "Design") for n in DESIGN if os.path.exists(os.path.join(ROOT, f"docs/{n}.md"))]
-    pages.append(("developer-guide", "foundation/README.md", "Developer guide"))
-    return pages
+    """[(id, source path, category title)] in reading order."""
+    return [(page_id(entry["path"]), entry["path"], category["title"]) for category in categories() for entry in category["pages"]]
+
+
+def labels():
+    return {entry["path"]: entry["label"] for category in categories() for entry in category["pages"] if entry.get("label")}
 
 
 def badge(markdown):
     """(label, class) from a page's leading **Status:** line, or None."""
-    match = re.search(r"^\*\*Status:?(.+?)(?:\n\n|\Z)", markdown, re.S | re.M)
+    match = re.search(r"^\*\*Status:(.+?)(?:\n\n|\Z)", markdown, re.S | re.M)
     if not match:
         return None
     text = " ".join(match.group(1).replace("*", " ").split()).lstrip(": ").lower()
@@ -259,6 +287,8 @@ def plain(markdown):
 
 def build(output=None, pages=None):
     pages = pages or page_list()
+    blurbs = {category["title"]: category["blurb"] for category in categories()}
+    short = labels()
     by_path = {os.path.normpath(os.path.join(ROOT, src)): pid for pid, src, _g in pages}
     sections, nav, index = [], {}, []
     problems = []
@@ -284,7 +314,8 @@ def build(output=None, pages=None):
         sections.append(f'<section class="page" data-page="{pid}" data-title="{html.escape(title)}"><div class="meta">'
                         f'{html.escape(group)} {label}<span class="src">{html.escape(src)}</span></div>'
                         f'<article>{body}</article></section>')
-        nav.setdefault(group, []).append({"id": pid, "title": title, "badge": status[1] if status else ""})
+        nav.setdefault(group, {"blurb": blurbs.get(group, ""), "pages": []})["pages"].append(
+            {"id": pid, "title": short.get(src, title), "badge": status[1] if status else ""})
         index.append({"id": pid, "title": title, "group": group, "text": plain(markdown)})
     commit = ""
     try:
@@ -382,9 +413,9 @@ const INDEX = {{INDEX}};
 const $ = (s, r = document) => r.querySelector(s);
 const pages = new Map([...document.querySelectorAll(".page")].map(p => [p.dataset.page, p]));
 const nav = $("#nav");
-for (const [group, items] of Object.entries(NAV)) {
-  const h = document.createElement("h2"); h.textContent = group; nav.append(h);
-  for (const it of items) {
+for (const [group, info] of Object.entries(NAV)) {
+  const h = document.createElement("h2"); h.textContent = group; h.title = info.blurb; nav.append(h);
+  for (const it of info.pages) {
     const a = document.createElement("a"); a.href = "#/" + it.id; a.dataset.id = it.id;
     a.innerHTML = '<span class="dot ' + it.badge + '"></span>'; a.append(it.title.replace(/^Ersa Compute Platform documentation$/, "Overview")); nav.append(a);
   }

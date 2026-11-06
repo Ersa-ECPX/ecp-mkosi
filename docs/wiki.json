@@ -1,0 +1,140 @@
+{
+  "categories": [
+    {
+      "title": "Start",
+      "blurb": "What the platform is and where to begin.",
+      "pages": [
+        {
+          "path": "docs/README.md",
+          "label": "Overview"
+        }
+      ]
+    },
+    {
+      "title": "Architecture",
+      "blurb": "How the system is put together: the boot chain, storage, security labels and updates.",
+      "pages": [
+        {
+          "path": "docs/architecture.md",
+          "label": "Architecture overview"
+        },
+        {
+          "path": "docs/features/boot-and-slots.md",
+          "label": "Boot and slots"
+        },
+        "docs/features/storage-and-persistence.md",
+        "docs/features/selinux.md",
+        {
+          "path": "docs/features/updates.md",
+          "label": "Updates (OTA)"
+        },
+        {
+          "path": "docs/ota-test.md",
+          "label": "Testing an update (plan)"
+        },
+        {
+          "path": "docs/ota-hosting.md",
+          "label": "Hosting updates"
+        }
+      ]
+    },
+    {
+      "title": "Foundation",
+      "blurb": "The management plane: one service, one command line, and the features built on them.",
+      "pages": [
+        {
+          "path": "docs/features/management-service.md",
+          "label": "Management service (foundationd)"
+        },
+        {
+          "path": "docs/features/foundation-cli.md",
+          "label": "Command line (foundation)"
+        },
+        "docs/features/configuration.md",
+        {
+          "path": "docs/features/deploy.md",
+          "label": "Deploy (install to a disk)"
+        },
+        "docs/features/system-extensions.md",
+        {
+          "path": "docs/foundationd.md",
+          "label": "Design notes: foundationd"
+        },
+        {
+          "path": "docs/provisioning.md",
+          "label": "Design notes: provisioning"
+        }
+      ]
+    },
+    {
+      "title": "App support",
+      "blurb": "Getting software onto an immutable system: Flatpak applications, packages from repositories, codecs and fonts.",
+      "pages": [
+        {
+          "path": "docs/features/applications.md",
+          "label": "Applications (Flatpak)"
+        },
+        {
+          "path": "docs/features/repositories-and-bundles.md",
+          "label": "Repositories and bundles"
+        },
+        {
+          "path": "docs/features/multimedia-and-fonts.md",
+          "label": "Multimedia and fonts"
+        }
+      ]
+    },
+    {
+      "title": "Installer",
+      "blurb": "Installing the system on a disk: the installer app and the live medium.",
+      "pages": [
+        {
+          "path": "docs/features/installer-app.md",
+          "label": "Installer app"
+        },
+        {
+          "path": "docs/features/live-medium.md",
+          "label": "Installer medium"
+        },
+        {
+          "path": "docs/installer.md",
+          "label": "Design notes: installer"
+        }
+      ]
+    },
+    {
+      "title": "Desktop and branding",
+      "blurb": "How the system looks: logos, boot splash, login screen and wallpapers.",
+      "pages": [
+        {
+          "path": "docs/features/branding.md",
+          "label": "Branding"
+        },
+        {
+          "path": "docs/branding.md",
+          "label": "Branding sources"
+        }
+      ]
+    },
+    {
+      "title": "Build and test",
+      "blurb": "Building images, running tests, and testing without a screen.",
+      "pages": [
+        {
+          "path": "docs/features/building-and-testing.md",
+          "label": "Building and testing"
+        }
+      ]
+    },
+    {
+      "title": "Developer guide",
+      "blurb": "For people changing the code.",
+      "pages": [
+        {
+          "path": "foundation/README.md",
+          "label": "Developer guide"
+        }
+      ]
+    }
+  ]
+}
