@@ -26,10 +26,13 @@ mkdir -p "$tree"
 # Only files under /usr count in a sysext; the RPM installs nothing else that matters.
 os_id="$(sed -n 's/^ID="\{0,1\}\([^"]*\)"\{0,1\}$/\1/p' mkosi.extra/usr/lib/os-release | head -n 1)"
 install -d "$tree/usr/lib/extension-release.d"
+# systemd matches the file name to the image's: ersa-installer.sysext.raw needs
+# extension-release.ersa-installer.sysext (the name is the image name without ".raw").
+release="$tree/usr/lib/extension-release.d/extension-release.ersa-installer.sysext"
 {
   echo "ID=$os_id"
   echo "ARCHITECTURE=$arch"
-} > "$tree/usr/lib/extension-release.d/extension-release.ersa-installer"
+} > "$release"
 sysext="$work/ersa-installer.sysext.raw"
 mkfs.erofs -zlz4 --quiet "$sysext" "$tree" >/dev/null
 
