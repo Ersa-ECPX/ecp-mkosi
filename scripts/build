@@ -31,4 +31,8 @@ fi
 export TMPDIR="$work/tmp" XDG_CACHE_HOME="$work/cache"
 
 # Extra arguments go to mkosi.
-exec mkosi --architecture="$arch" "$@" build
+mkosi --architecture="$arch" "$@" build
+# The installer image also needs its installer, a sysext added to the ESP after the build.
+case " $* " in
+  *" --profile installer "*|*" --profile=installer "*|*" -p installer "*) scripts/build-installer-medium "$arch" ;;
+esac
