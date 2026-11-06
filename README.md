@@ -4,6 +4,8 @@ Initial **experimental** mkosi configuration for an openSUSE Tumbleweed GNOME de
 
 Device-specific ECP sources will be organized under [devices/](devices/README.md) after the x86-64 foundation boots. No phone target is enabled yet.
 
+Documentation for every feature, with what is and is not tested: [docs/README.md](docs/README.md).
+
 ## Architecture
 
 The consolidated picture (layers, boot chain, storage, updates, management plane, security, decisions and what is verified) is in [docs/architecture.md](docs/architecture.md).
@@ -143,9 +145,9 @@ scripts/build x86-64 --profile installer    # the installer image: mkosi.output/
 | ESP | 1 GiB | 512 MiB |
 | Recovery | 1 GiB (reserved) | none |
 | Root | two 8 GiB slots (A/B) | one 5 GiB slot (nothing on the stick is updated) |
-| Data (btrfs, `/var` and `/home`) | 10 GiB or more | none: `/var` and `/home` are RAM disks, and a 16 MiB read-only partition holds the installer sysext |
+| Data (btrfs, `/var` and `/home`) | 10 GiB or more 512 MiB, holds the live session's `/var` and `/home` and the installer sysext |
 
-mkosi merges `mkosi.repart/` with anything a profile adds, so the default layout lives in `mkosi.repart.system/` and is selected by `mkosi.conf.d/20-repart.conf` unless the installer profile is active. The installer app and `foundation deploy` are built (see [docs/installer.md](docs/installer.md)); the installer medium is read-only and runs from RAM. The 5 GiB root fails the build, rather than truncating, if the OS image ever outgrows it.
+mkosi merges `mkosi.repart/` with anything a profile adds, so the default layout lives in `mkosi.repart.system/` and is selected by `mkosi.conf.d/20-repart.conf` unless the installer profile is active. The installer app and `foundation deploy` are built (see [docs/installer.md](docs/installer.md)); the installer medium keeps a small writable data volume for the live session. The 5 GiB root fails the build, rather than truncating, if the OS image ever outgrows it.
 
 ## Update payload (profile)
 

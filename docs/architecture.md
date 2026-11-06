@@ -73,16 +73,16 @@ path; a bind mount of `/var/home` would not. Not set up yet: quotas (btrfs has n
 full `/home` can starve system services without them), compression (left off: read speed first), and
 first-boot growth of the volume to fill a larger disk.
 
-**Installer image.** The same OS in a 5.5 GiB layout (ESP 512 MiB, one 5 GiB root, a 16 MiB read-only extension
-partition) built with `scripts/build x86-64 --profile installer`; it runs from RAM and is never written to. The
-normal image stays for QEMU testing ([installer.md](installer.md)).
+**Installer image.** The same OS in a 6 GiB layout (ESP 512 MiB, one 5 GiB root, a 512 MiB data volume for the live
+session) built with `scripts/build x86-64 --profile installer`; its root is labelled `ecp-live_<version>` so an installed
+disk is never mistaken for it. The normal image stays for QEMU testing ([installer.md](installer.md)).
 
 **Which disk is mounted.** Nothing is found by a label that another disk could share. A built image's
 command line names its root and data volume by label (fine with one disk). `foundation deploy` rewrites the copied
 kernel image's command line for the new install: `root=PARTUUID=…` and `systemd.mount-extra=PARTUUID=…:/var…` /
 `…:/home…` with UUIDs it generated and pinned when creating the partitions (`deploy.py`, `installed_cmdline`), so an
 installer USB left in, or a second install, cannot supply the wrong `/var` or `/home`. The installer medium's root
-is labelled `ecp-live_<version>`, not `ecp-root_<version>`. **Known gap:** kernel images that arrive later by OTA
+is labelled `ecp-live_<version>`, not `ecp-root_<version>`, so the two can be told apart. **Known gap:** kernel images that arrive later by OTA
 update are built with the label form again, so after an update the ambiguity can return when another ECP disk is
 attached at boot; the fix is a per-install command line addon on the ESP, not done yet.
 
@@ -192,14 +192,21 @@ denied `useradd` and `dbus-broker`. Relabelling the upper layer on the running d
 (`file_contexts.subs` plus `mkosi.finalize.chroot`); the provisioning hook; `compat` merging;
 persistent `slot boot`; Flatpak installs on the larger `/var`; Firefox from the image.
 
-**Not built:** OTA updates, installer, diagnostics, recovery system, signing and Secure Boot,
-dm-verity, MDM, per-worker sandboxes, aarch64 and device kernels.
+**Installer, deploy, repositories (added since):** `foundation deploy` and the graphical installer were run in QEMU
+(install onto a virtual disk, boot it alone through UEFI: language and time zone applied, no live user, a user's home created,
+the entry blessed); the live medium booted and installed. A read-only live medium was tried and removed (emergency mode,
+[features/live-medium.md](features/live-medium.md)). Repositories and bundles were built and verified against the live
+openSUSE and Packman repositories in a container, not yet on a booted image.
+
+**Not built:** OTA updates (scaffolding only), diagnostics, recovery system, signing and Secure Boot, dm-verity, MDM,
+per-worker sandboxes, encryption, aarch64 and device kernels.
 
 ## Order of work
 
-1. Rebuild and boot; check the build-time `/etc` label (`ls -ldZ /etc` is `etc_t` with no manual step), then the items above.
-2. Prove OTA against a local server in QEMU (`systemd-sysupdate`, then `Updates` via `sysupdated`).
-3. Installer: `Deploy` reusing the slot and kernel-image logic.
-4. Signing, then the "root from the booted entry" change that keeps a copied UKI signed; then dm-verity.
-5. Quotas for the data volume; compression and deltas when measured.
+1. Rebuild and boot; install a bundle (`foundation compat install @codecs`) on a booted image under enforcing SELinux.
+2. Prove OTA against a local server in QEMU (`systemd-sysupdate`, then `Updates` via `sysupdated`), including the
+   per-install kernel command line surviving an update.
+3. Signing, then the "root from the booted entry" change that keeps a copied UKI signed; then dm-verity.
+4. An automated install-then-boot check in `scripts/qemu-smoke`.
+5. Encryption and a choice of data filesystem; quotas; compression and deltas when measured.
 6. First-boot front end and MDM, once the enrolment requirement is known.

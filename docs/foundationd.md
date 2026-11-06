@@ -22,9 +22,11 @@ questions.
 | `Job` objects, locks, workers, queries | implemented: steps, progress, cancellation up to a point of no return, persisted history, restart recovery |
 | `Boot` | implemented: state, slots, set default / next boot, copy a slot (with its own label and kernel image), release, reboot, reboot to firmware. **No recovery entry exists yet**, so `RebootToRecovery` is not offered |
 | `Apps` | implemented: libflatpak for list/install/remove/update/remote; `flatpak` CLI for search and info |
-| `Compat` | implemented: inspect, install, remove, list, revalidate |
+| `Compat` | implemented: inspect, install RPM files, remove, list, revalidate; **bundles** (many repository packages as one extension: install, remove, update, catalog) |
+| `Repos` | implemented: list, search, info, enable, refresh; signed metadata, libsolv solving, verified downloads |
 | `Extensions` | implemented: list, merge, unmerge, refresh for sysext and confext |
-| `Updates` (OTA), `Deploy`, `Diagnostics`, `CompleteProvisioning` | **not implemented** |
+| `Deploy` | implemented: list disks, plan, install to a disk (used by `foundation deploy` and the graphical installer) |
+| `Updates` (OTA), `Diagnostics`, `CompleteProvisioning` front ends | **not implemented** |
 
 Changes from the first design, and why:
 

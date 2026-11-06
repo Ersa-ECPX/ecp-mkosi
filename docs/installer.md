@@ -20,18 +20,15 @@ checked (in QEMU, on virtual disks only) before they are described as working.
 The installer is an mkosi **profile** of the same OS, not a separate distribution: `scripts/build x86-64
 --profile installer`. It uses a minimal layout, defined in `mkosi.repart.installer/`: a 512 MiB ESP, **one**
 5 GiB root (labelled `ecp-live_<version>`; nothing on the stick is updated, so there is no slot B and no recovery
-partition) and a 16 MiB read-only EROFS partition, `ECP-LIVE-EXT`, holding the installer sysext. About 5.5 GiB in
-total, so it fits an 8 GB stick; a 28 GiB image would not, and a sparse file is still written out in full by `dd`.
-The normal image (A/B slots) remains the one for QEMU testing.
+partition) and a 512 MiB btrfs data volume, `ECP-DATA`, for the live session's `/var` and `/home` and the installer
+sysext. About 6 GiB in total, so it fits an 8 GB stick. The normal image (A/B slots) remains the one for QEMU testing.
 
-**The installer medium is never written to.** The root and the extension partition are read-only EROFS. `/var` and
-`/home` are RAM disks (kernel command line, `systemd.mount-extra=tmpfs:...`), and so is the `/etc` overlay's storage
-(`sysroot-var-lib-ecp.mount` in the initrd, labelled for SELinux; `sysroot-etc-dirs.service` creates the overlay
-directories). The kernel image is named `ecp_<version>.efi`, with no boot counter, so systemd-boot never renames
-it on the ESP, and `systemd-bless-boot` is skipped. Nothing about a live session survives a reboot. **Not yet
-verified in a booted image:** these initrd units and mounts (the `mount-extra` syntax was checked on the old image,
-including that an SELinux context cannot be given there because of its colons, hence the unit file), and that the
-image bytes are identical before and after a boot (the check to run).
+**A read-only variant was tried and removed (2026-11-06).** It put `/var`, `/home` and the `/etc` overlay's storage in
+RAM and the sysext on a read-only partition, so the medium would never be written to. Booted for the first time, the
+RAM disk for the `/etc` overlay (`sysroot-var-lib-ecp.mount`, mounted with an SELinux `context=` in the initrd) failed
+and the machine dropped to emergency mode; the exact error was not captured (the likeliest cause is that a `context=`
+mount cannot be made in the initrd before the policy loads, which is unverified). The medium is back to a small writable
+data volume. The distinct root label `ecp-live_<version>` was kept: the same boot log showed it found and mounted.
 
 ## Architecture
 
@@ -185,11 +182,10 @@ polkit rule in the booted installer image, and keyboard navigation and screen re
   profile only changes the partition layout and output name). The installer itself is a **system
   extension (sysext)**: `scripts/build-installer-sysext` turns the `foundation-installer` RPM into
   `ersa-installer.raw` (EROFS, with `extension-release.ersa-installer` for `ID=opensuse-tumbleweed`),
-  and the installer profile stages it (`ExtraTrees=mkosi.installer.extra`) into the read-only `ECP-LIVE-EXT`
-  partition, mounted at `/var/lib/extensions/` from the kernel command line, where `systemd-sysext.service`
-  (enabled in the preset) merges it into `/usr` at boot. It carries the app, the hidden launcher and `ersa-live-session.service`, which
+  and the installer profile stages it (`ExtraTrees=mkosi.installer.extra`) onto the medium's data volume at
+  `/var/lib/extensions/`, where `systemd-sysext.service` (enabled in the preset) merges it into `/usr` at boot. It carries the app, the hidden launcher and `ersa-live-session.service`, which
   creates `liveuser` (password `liveuser`), passwordless sudo (a one-line drop-in for `systemd-sysext.service` in the root image starts it right after the merge, because a unit merged mid-boot is not in the boot's job list; checked on four boots in a row), the polkit rule, GDM automatic login (SUSE's gdm reads `DISPLAYMANAGER_AUTOLOGIN` from `/etc/sysconfig/displaymanager`, empty in the image, ahead of `custom.conf`, so both are set) and
-  the installer autostart under `/etc` and `/home` (RAM disks, never the root image).
+  the installer autostart under `/etc` and `/home` (the medium's overlay and data volume, never the root image).
 - Why not the ESP: systemd-stub's `/loader/extensions/` and `/.extra/sysext` are for extending the
   *initrd* (merged there, unsigned images rejected by the stricter policy, gone after switch-root), and
   the main system's `systemd-sysext.service` only looks in `/etc`, `/run` and `/var/lib/extensions`.

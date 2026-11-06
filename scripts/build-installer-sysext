@@ -1,9 +1,10 @@
 #!/usr/bin/env bash
-# Build the installer as a system extension (sysext) from the foundation-installer RPM and stage it where
-# the installer profile puts it on the medium's data volume: /var/lib/extensions/ersa-installer.raw.
-# systemd-sysext.service merges everything in /var/lib/extensions into /usr at boot, so the root image
-# stays identical to the normal one, and Deploy (which writes a fresh data volume) never copies it.
-# scripts/build runs this before building the installer profile.
+# Build the installer as a system extension (sysext) from the foundation-installer RPM and stage it as
+# mkosi.installer.extra/var/lib/extensions/ersa-installer.raw. The installer profile (mkosi.profiles/installer)
+# puts it on the medium's data volume at /var/lib/extensions; systemd-sysext.service merges it into /usr at boot.
+# So the root image stays identical to the normal one, and Deploy (which writes a fresh data volume) never
+# carries it to an installed system. Every file is labelled for SELinux for its merged path (an unlabelled sysext made
+# /usr unreadable to confined services). scripts/build runs this before building the installer profile.
 #
 #   scripts/build-installer-sysext [x86-64]
 set -euo pipefail

@@ -2,11 +2,10 @@
 Description=Persistent overlay for /etc
 Documentation=file:///usr/share/doc/foundation/README.md
 DefaultDependencies=no
-# /sysroot/var comes from systemd.mount-extra= on the kernel command line (the installed system names its data
-# partition by PARTUUID there; see deploy.py), which the fstab generator turns into mount units before this
-# unit is looked at. sysroot-etc-dirs.service waits for those mounts and makes sure the directories exist.
-Requires=sysroot-etc-dirs.service
-After=sysroot-etc-dirs.service
+# /sysroot/var comes from systemd.mount-extra= on the kernel command line (a built image names its data volume by
+# label; an installed system by PARTUUID, see deploy.py), which the initrd's fstab generator turns into a mount
+# unit before this unit is looked at. The overlay's directories exist on the data volume already (image build,
+# or the installer's seed).
 RequiresMountsFor=/sysroot/var
 After=initrd-parse-etc.service
 Before=initrd-fs.target
