@@ -49,6 +49,21 @@ foundation update install dist/update/ecp_0.2.0-x86_64.tar.zst --unsigned
 only if its public half is installed as `/usr/share/foundation/keys/ersa-image-*.asc` or
 `/etc/foundation/keys/ersa-image-*.asc`; **no such key is shipped yet.**
 
+### Trying it in QEMU
+
+Start the test server on the host, then install from inside the guest (QEMU's default network shows the host's loopback
+as `10.0.2.2`):
+
+```
+scripts/serve-update dist/update 8000                                    # host; prints the guest command
+foundation update install http://10.0.2.2:8000/ecp_0.2.0-x86_64.tar.zst --unsigned    # guest
+foundation reboot
+```
+
+The command downloads the file itself (https from anywhere, plain http only from this computer or a private network),
+installs it, and deletes the download. The guest needs a free standby slot and the installed disk layout, so test on an
+installed disk, not the live installer medium.
+
 ## What is tested, and what is not
 
 Tested: archive checks (tampering, extra or misplaced entries, wrong product or architecture, oversize, signatures), the slot

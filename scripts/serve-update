@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Serve the published update files over HTTP for a test:
 #   scripts/serve-update [DIR] [PORT]        defaults: dist, 8000
+#   scripts/serve-update dist/update         the archives from scripts/make-update-archive
 # It binds to the host's loopback only. A QEMU guest on the default user-mode network reaches it
 # as http://10.0.2.2:PORT/ (the host's loopback seen from the guest). Not for real use: no TLS,
 # no authentication, and Python's server does not support HTTP range requests.
@@ -9,5 +10,9 @@ cd "$(dirname "$0")/.."
 dir="${1:-dist}"
 port="${2:-8000}"
 [[ -d "$dir" ]] || { echo "$dir does not exist; run scripts/publish-update first" >&2; exit 1; }
+shopt -s nullglob
+for f in "$dir"/*.tar.zst "$dir"/update/*.tar.zst; do
+  echo "in the guest:  foundation update install http://10.0.2.2:$port/${f#"$dir"/} --unsigned"
+done
 echo "serving $dir on http://127.0.0.1:$port/  (guest: http://10.0.2.2:$port/)  -- Ctrl-C to stop"
 exec python3 -m http.server --directory "$dir" --bind 127.0.0.1 "$port"
