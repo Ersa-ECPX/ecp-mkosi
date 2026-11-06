@@ -1,2 +1,0 @@
-LABEL=ECP-DATA /var btrfs subvol=var,x-initrd.mount 0 0
-LABEL=ECP-DATA /home btrfs subvol=home 0 0

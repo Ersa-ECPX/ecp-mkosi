@@ -41,8 +41,9 @@ graphical client are thin D-Bus clients of it.
    tries run out, so boot falls back to the previous entry.
 3. The **UKI** carries the kernel, the initrd and a command line containing
    `root=PARTLABEL=ecp-root_<version>`, so booting a UKI selects its slot.
-4. The **initrd** mounts the root (EROFS, read-only) and `/var` (ext4, `x-initrd.mount`), then builds
-   the **`/etc` overlay** (`sysroot-etc.mount`), and switches root.
+4. The **initrd** mounts the root (EROFS, read-only) and `/var` (btrfs subvolume), both named on the kernel
+   command line (`root=` and `systemd.mount-extra=`; an installed system uses its own PARTUUIDs, see below),
+   then builds the **`/etc` overlay** (`sysroot-etc.mount`), and switches root.
 5. **systemd** starts the system. `systemd-bless-boot` marks the entry good once the graphical target
    is reached with no failed units (the counter disappears from the file name).
 
@@ -72,9 +73,18 @@ path; a bind mount of `/var/home` would not. Not set up yet: quotas (btrfs has n
 full `/home` can starve system services without them), compression (left off: read speed first), and
 first-boot growth of the volume to fill a larger disk.
 
-**Installer image.** The same OS in a 6 GiB layout (ESP 512 MiB, one 5 GiB root, 512 MiB data) built with
-`scripts/build x86-64 --profile installer`; the normal image stays for QEMU testing. Layout only until
-`Deploy` and the installer app exist ([installer.md](installer.md)).
+**Installer image.** The same OS in a 5.5 GiB layout (ESP 512 MiB, one 5 GiB root, a 16 MiB read-only extension
+partition) built with `scripts/build x86-64 --profile installer`; it runs from RAM and is never written to. The
+normal image stays for QEMU testing ([installer.md](installer.md)).
+
+**Which disk is mounted.** Nothing is found by a label that another disk could share. A built image's
+command line names its root and data volume by label (fine with one disk). `foundation deploy` rewrites the copied
+kernel image's command line for the new install: `root=PARTUUID=…` and `systemd.mount-extra=PARTUUID=…:/var…` /
+`…:/home…` with UUIDs it generated and pinned when creating the partitions (`deploy.py`, `installed_cmdline`), so an
+installer USB left in, or a second install, cannot supply the wrong `/var` or `/home`. The installer medium's root
+is labelled `ecp-live_<version>`, not `ecp-root_<version>`. **Known gap:** kernel images that arrive later by OTA
+update are built with the label form again, so after an update the ambiguity can return when another ECP disk is
+attached at boot; the fix is a per-install command line addon on the ESP, not done yet.
 
 ## Updates and rollback (A/B)
 

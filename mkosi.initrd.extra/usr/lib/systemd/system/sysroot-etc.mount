@@ -2,9 +2,11 @@
 Description=Persistent overlay for /etc
 Documentation=file:///usr/share/doc/foundation/README.md
 DefaultDependencies=no
-# /sysroot/var is mounted from the image's /etc/fstab (x-initrd.mount), which initrd-parse-etc reads
-# from the read-only root *before* this overlay exists. initrd-fs.target starts after that, and pulls
-# this unit in, so the /var mount unit is known by now.
+# /sysroot/var comes from systemd.mount-extra= on the kernel command line (the installed system names its data
+# partition by PARTUUID there; see deploy.py), which the fstab generator turns into mount units before this
+# unit is looked at. sysroot-etc-dirs.service waits for those mounts and makes sure the directories exist.
+Requires=sysroot-etc-dirs.service
+After=sysroot-etc-dirs.service
 RequiresMountsFor=/sysroot/var
 After=initrd-parse-etc.service
 Before=initrd-fs.target

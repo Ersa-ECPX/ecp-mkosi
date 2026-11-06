@@ -60,15 +60,15 @@ The writable data volume is btrfs (subvolumes, so `/var` and `/home` share space
 | root slot B, 8 GiB | empty, labeled `_empty` | inactive slot that `systemd-sysupdate` writes the next version into |
 | ECP-DATA, at least 10 GiB, last | btrfs | one volume with two subvolumes: `var` (mounted at `/var`: logs, Flatpak applications and runtimes, container storage, the `/etc` overlay's upper layer) and `home` (mounted at `/home`: user data). They share free space and can be snapshotted, backed up or reset separately. |
 
-`/var` (the btrfs subvolume `var`) is mounted in the initrd (`x-initrd.mount` in `mkosi.extra/etc/fstab`), and the `/etc` overlay is built on it there. Without a writable `/etc` early, PID 1 starts with the image's placeholder `/etc/machine-id` (`uninitialized`) and `dbus-broker` refuses to start. `/tmp` is a tmpfs because the root is read-only.
+`/var` (the btrfs subvolume `var`) is mounted in the initrd (`systemd.mount-extra=` on the kernel command line, see `mkosi.conf.d/30-data-mounts.conf`; there is no `/etc/fstab` entry), and the `/etc` overlay is built on it there. Without a writable `/etc` early, PID 1 starts with the image's placeholder `/etc/machine-id` (`uninitialized`) and `dbus-broker` refuses to start. `/tmp` is a tmpfs because the root is read-only.
 
-`/etc` is an **overlay**, assembled in the initrd (`mkosi.initrd.extra/usr/lib/systemd/system/sysroot-etc.mount`): the image's own `/etc` is the read-only lower layer, and the persistent upper layer lives on the `/var` partition (`/var/lib/ecp/etc/upper`). New defaults from an OS update therefore appear automatically, and local changes (users, network settings, the machine ID, SSH host keys) stay on top and survive updates. The image's `/etc/fstab` (read from the lower layer before the overlay exists) mounts `/var` in the initrd (`x-initrd.mount`). The overlay driver is a kernel module, so `/fs/overlayfs/` is in `KernelInitrdModules`. **Unverified:** the initrd ordering of the overlay unit, SELinux labels of files created in the upper layer, and the machine ID being committed on first boot; test these first on the next build.
+`/etc` is an **overlay**, assembled in the initrd (`mkosi.initrd.extra/usr/lib/systemd/system/sysroot-etc.mount`): the image's own `/etc` is the read-only lower layer, and the persistent upper layer lives on the `/var` partition (`/var/lib/ecp/etc/upper`). New defaults from an OS update therefore appear automatically, and local changes (users, network settings, the machine ID, SSH host keys) stay on top and survive updates. The overlay driver is a kernel module, so `/fs/overlayfs/` is in `KernelInitrdModules`. **Unverified:** the initrd ordering of the overlay unit, SELinux labels of files created in the upper layer, and the machine ID being committed on first boot; test these first on the next build.
 
 mkosi leaves `/etc/machine-id` marked uninitialized unless a machine ID is explicitly set. No password, SSH key, or machine identity is committed to the image. `systemd-firstboot.service` is disabled and masked (its interactive wizard hangs the splash); GNOME Initial Setup creates the first account. `/etc` (its upper layer), `/var` and `/home` survive OS image replacement.
 
 The image includes the `ersa-boot-splash` noarch RPM for the Ersa Plymouth theme. `scripts/build` builds this RPM from `packages/ersa-boot-splash/` with `rpmbuild` and supplies it to mkosi as a local package. Mkosi overlays the theme selection config into both the root image and initrd. The theme source and redistribution limit are recorded in [docs/branding.md](docs/branding.md). The theme's appearance in the initrd has not been visually tested.
 
-The home partition is last and may consume available space during image creation. It is not automatically expanded by `install-raw` when installed on a larger disk. Back up all three persistent partitions before changing their sizes or replacing a device. The current fstab uses labels, so do not attach two ECP disks with identical labels at once.
+The home partition is last and may consume available space during image creation. It is not automatically expanded by `install-raw` when installed on a larger disk. Back up all three persistent partitions before changing their sizes or replacing a device. A built image names its data volume by label; an installed system names it by PARTUUID (rewritten into the kernel image by `foundation deploy`), so attaching the installer medium or a second install does not mix their `/var` and `/home`.
 
 ## Defaults
 
@@ -143,9 +143,9 @@ scripts/build x86-64 --profile installer    # the installer image: mkosi.output/
 | ESP | 1 GiB | 512 MiB |
 | Recovery | 1 GiB (reserved) | none |
 | Root | two 8 GiB slots (A/B) | one 5 GiB slot (nothing on the stick is updated) |
-| Data (btrfs, `/var` and `/home`) | 10 GiB or more | 512 MiB |
+| Data (btrfs, `/var` and `/home`) | 10 GiB or more | none: `/var` and `/home` are RAM disks, and a 16 MiB read-only partition holds the installer sysext |
 
-mkosi merges `mkosi.repart/` with anything a profile adds, so the default layout lives in `mkosi.repart.system/` and is selected by `mkosi.conf.d/20-repart.conf` unless the installer profile is active. **Today the profile changes the layout only.** The installer app and the `foundation deploy` command that would copy the system to a disk are not built (see [docs/installer.md](docs/installer.md)), so booting the installer image gives the normal desktop. The 5 GiB root fails the build, rather than truncating, if the OS image ever outgrows it.
+mkosi merges `mkosi.repart/` with anything a profile adds, so the default layout lives in `mkosi.repart.system/` and is selected by `mkosi.conf.d/20-repart.conf` unless the installer profile is active. The installer app and `foundation deploy` are built (see [docs/installer.md](docs/installer.md)); the installer medium is read-only and runs from RAM. The 5 GiB root fails the build, rather than truncating, if the OS image ever outgrows it.
 
 ## Update payload (profile)
 

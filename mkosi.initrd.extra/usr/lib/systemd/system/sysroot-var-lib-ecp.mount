@@ -1,0 +1,17 @@
+[Unit]
+Description=RAM disk for the /etc overlay (installer medium)
+Documentation=file:///usr/share/doc/foundation/README.md
+DefaultDependencies=no
+# Only the installer medium, which boots with ecp.live and keeps /var in RAM. On every other system the
+# overlay's directories live on the data volume (created by `foundation deploy`) and nothing is mounted here.
+ConditionKernelCommandLine=ecp.live
+Conflicts=umount.target
+
+[Mount]
+What=tmpfs
+Where=/sysroot/var/lib/ecp
+Type=tmpfs
+# The overlay's upper directory must carry the same label an installed system gives it (etc_t). SELinux is
+# enabled but its policy is not loaded in the initrd, so a directory created later would be unlabelled and
+# denied once the policy loads; labelling the whole mount fixes that for everything below it.
+Options=mode=0755,context=system_u:object_r:etc_t:s0
