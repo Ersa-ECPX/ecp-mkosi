@@ -1,6 +1,22 @@
 # dm-verity and the machine-independent kernel image (plan)
 
-**Status: planned, nothing built.** This note records what was checked and the order of work.
+**Status: the `foundation` side is written and unit-tested; the mkosi side is written but has never been built, and nothing has
+been booted with dm-verity.**
+
+Done and tested (unit tests with synthetic disks, no image): `foundationd/backends/verity.py` (root hash to partition UUIDs,
+`roothash=` from a kernel image); slot discovery by root hash for slots labelled `ecp-root-a`/`ecp-root-b` (older
+`ecp-root_<version>` slots still work); `foundation update install` of a **format 2** archive (the image, its hash tree, the
+root hash in the signed manifest) into the standby slot's two partitions, which are then named by the hash, with the signed
+kernel image copied byte for byte and the label never changed; a failed write leaves the slot unbootable; the older format 1
+archive is refused for a dm-verity slot; `scripts/make-update-archive` makes format 2 archives from the verity build outputs.
+
+Written, not built: the `verity` mkosi profile (`mkosi.repart.root-verity/`, `mkosi.repart.system-verity/`, `roothash` split
+artifact, `/drivers/md/` initrd modules). Its configuration resolves as intended (`mkosi --json summary`).
+
+Not done: the initrd generator that finds the data volume on the booted disk; the installer's disk layout and its copy of the
+partitions; a first boot with dm-verity; the tampered-block and failed-update tests in QEMU; the slot tools that still read
+versions from labels (`copy`, `release`, the installer) for verity slots. Existing 0.1.x installations have no hash
+partitions: they need one reinstall to get the new layout (an update cannot add partitions).
 
 ## Why
 
