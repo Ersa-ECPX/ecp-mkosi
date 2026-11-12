@@ -102,8 +102,11 @@ and are recomputed whenever the bundle is rebuilt for a new image. They come fro
 script may be described as "runs other commands". `systemd-tmpfiles --create` also runs after a merge, for the `/var`
 directories above.
 
-Not yet checked on a booted image: ordering `systemd-sysusers.service` after the extension merge (a drop-in does it),
-and whether a real GNOME application from a bundle works without its schema cache rebuilt.
+Accounts from an extension are created by `ersa-sysusers-extensions.service`, which runs `systemd-sysusers` again after the merge.
+(Ordering `systemd-sysusers.service` itself after `systemd-sysext.service` makes an ordering cycle with the `/boot` mount and udev
+that stalled boots for 90 seconds.)
+
+Not yet checked on a booted image: whether a real GNOME application from a bundle works without its schema cache rebuilt.
 
 ## After a merge: generated files
 

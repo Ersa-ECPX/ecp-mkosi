@@ -1,0 +1,17 @@
+[Unit]
+Description=Create the users and groups that system extensions bring
+# systemd-sysusers.service runs before the extensions are merged, so accounts from an extension's sysusers.d are not
+# there yet. Run it again afterwards. Do NOT order systemd-sysusers.service itself after systemd-sysext.service: that
+# makes a cycle (sysext waits for local-fs.target, which mounts /boot by a device name that only udev, which starts after
+# tmpfiles-setup-dev, which follows sysusers, can provide), and systemd breaks it at random by dropping a job, which
+# stalled about every other boot for 90 seconds.
+DefaultDependencies=no
+After=systemd-sysext.service
+Before=systemd-tmpfiles-setup.service sysinit.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/systemd-sysusers
+
+[Install]
+WantedBy=sysinit.target

@@ -7,6 +7,7 @@ enable systemd-boot-check-no-failures.service
 enable bluetooth.service
 enable firewalld.service
 enable systemd-sysext.service
+enable ersa-sysusers-extensions.service
 enable ersa-var-init.service
 enable foundation-bundles-select.service
 enable foundation-bundles-refresh.service
