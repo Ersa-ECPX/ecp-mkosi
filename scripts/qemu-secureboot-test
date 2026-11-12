@@ -1,0 +1,232 @@
+#!/usr/bin/env python3
+"""Boot the platform under UEFI Secure Boot in QEMU (OVMF with enforcement): it must boot what our key signed and refuse the rest.
+
+    scripts/qemu-secureboot-test [--image IMG] [--uki UKI]     defaults: the newest mkosi.output/ecp_*.raw and its .efi
+
+It uses a throwaway key and certificate, never the real Secure Boot key. The kernel image (UKI) and the systemd-boot loader are
+signed here with sbsign, so an image built WITHOUT the secureboot profile can be tried; this tests the firmware chain and
+the signatures, not mkosi's signing step. A small second disk carries the boot files; the image itself is attached read-only
+(snapshot) for the root filesystem and is never modified. Cases, each in a fresh machine:
+
+  enroll+boot     firmware in Setup Mode with no keys; systemd-boot enrols our certificate (as mkosi's auto-enrol does), the
+                  machine resets, Secure Boot is on, and the signed UKI boots to a login prompt
+  unsigned UKI    firmware now enforcing; a signed loader, an UNSIGNED kernel image: must not boot
+  other key UKI   signed by a certificate the firmware does not have: must not boot
+  tampered UKI    correctly signed, then one byte of the kernel changed: must not boot
+  unsigned loader an unsigned systemd-boot: must not boot
+
+Needs: qemu-system-x86_64, OVMF with Secure Boot (OVMF_CODE.secboot), openssl, efitools (cert-to-efi-sig-list, sign-efi-sig-list),
+mtools, and sbsign (or the mkosi tools tree at mkosi.tools/, which has it). QEMU's Secure Boot and firmware are emulated: this is
+not proof for any real computer's firmware.
+"""
+
+import argparse
+import glob
+import os
+import shutil
+import subprocess
+import sys
+import tempfile
+import time
+
+HERE = os.path.dirname(os.path.abspath(__file__))
+ROOT = os.path.abspath(os.path.join(HERE, ".."))
+sys.path.insert(0, os.path.join(ROOT, "foundation"))
+CODE = ("/usr/share/edk2/x64/OVMF_CODE.secboot.4m.fd", "/usr/share/OVMF/OVMF_CODE_4M.secboot.fd", "/usr/share/edk2/ovmf/OVMF_CODE.secboot.fd")
+VARS = ("/usr/share/edk2/x64/OVMF_VARS.4m.fd", "/usr/share/OVMF/OVMF_VARS_4M.fd", "/usr/share/edk2/ovmf/OVMF_VARS.fd")
+GUID = "7c1d3f52-8a4e-4b6a-9e0d-3b5f2a7c9e15"
+
+
+def first(paths, what):
+    for path in paths:
+        if os.path.exists(path):
+            return path
+    sys.exit(f"{what} not found (looked in {', '.join(paths)})")
+
+
+def run(cmd, **kw):
+    done = subprocess.run(cmd, capture_output=True, text=True, **kw)
+    if done.returncode:
+        sys.exit(f"{' '.join(cmd)[:120]} failed: {(done.stderr or done.stdout).strip()[:300]}")
+    return done.stdout
+
+
+def sbsign_command():
+    found = shutil.which("sbsign")
+    if found:
+        return [found]
+    tools = os.path.join(ROOT, "mkosi.tools")
+    loader = os.path.join(tools, "usr/lib64/ld-linux-x86-64.so.2")
+    if os.path.exists(loader) and os.path.exists(os.path.join(tools, "usr/bin/sbsign")):
+        return [loader, "--library-path", f"{tools}/usr/lib64:{tools}/usr/lib", os.path.join(tools, "usr/bin/sbsign")]
+    sys.exit("sbsign not found (install sbsigntools, or build once so mkosi.tools/ exists)")
+
+
+def make_key(directory, name):
+    key, crt = os.path.join(directory, name + ".key"), os.path.join(directory, name + ".crt")
+    run(["openssl", "req", "-new", "-x509", "-newkey", "rsa:2048", "-nodes", "-sha256", "-days", "2", "-subj", f"/CN=ECP test {name}/",
+         "-keyout", key, "-out", crt])
+    return key, crt
+
+
+def auth_files(directory, key, crt):
+    for name in ("PK", "KEK", "db"):
+        esl, auth = os.path.join(directory, name + ".esl"), os.path.join(directory, name + ".auth")
+        run(["cert-to-efi-sig-list", "-g", GUID, crt, esl])
+        run(["sign-efi-sig-list", "-g", GUID, "-k", key, "-c", crt, name, esl, auth])
+
+
+def sign(sbsign, key, crt, source, target):
+    run(sbsign + ["--key", key, "--cert", crt, "--output", target, source])
+
+
+def make_esp(path, size_mb, files):
+    """A FAT image with `files` = {path inside: local file}."""
+    with open(path, "wb") as handle:
+        handle.truncate(size_mb * 1024 * 1024)
+    run(["mformat", "-i", path, "-F", "-v", "ERSATSB", "::"])
+    made = set()
+    for inside, local in files.items():
+        parent = ""
+        for part in inside.split("/")[:-1]:
+            parent += "/" + part
+            if parent not in made:
+                run(["mmd", "-i", path, "::" + parent])
+                made.add(parent)
+        run(["mcopy", "-i", path, local, "::" + inside])
+
+
+def boot(image, esp, vars_file, log, timeout, expect_boot, memory=3072):
+    code = first(CODE, "OVMF with Secure Boot")
+    kvm = os.access("/dev/kvm", os.R_OK | os.W_OK)
+    cmd = ["qemu-system-x86_64", "-machine", "q35,smm=on" + (",accel=kvm" if kvm else ""), "-cpu", "host" if kvm else "max",
+           "-m", str(memory), "-smp", "2", "-global", "driver=cfi.pflash01,property=secure,value=on",
+           "-drive", f"if=pflash,format=raw,readonly=on,file={code}", "-drive", f"if=pflash,format=raw,file={vars_file}",
+           "-drive", f"file={esp},format=raw,if=none,id=esp", "-device", "virtio-blk-pci,drive=esp,bootindex=1",
+           "-drive", f"file={image},format=raw,if=none,id=sys,snapshot=on,cache=unsafe", "-device", "virtio-blk-pci,drive=sys",
+           "-device", "virtio-rng-pci", "-display", "none", "-vga", "std", "-monitor", "none", "-serial", f"file:{log}",
+           "-nic", "none"]
+    process = subprocess.Popen(cmd, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
+    start = time.monotonic()
+    try:
+        while time.monotonic() - start < timeout and process.poll() is None:
+            time.sleep(2)
+            text = read(log)
+            if expect_boot and "login:" in text and "locked down from EFI Secure Boot" in text:
+                break
+    finally:
+        if process.poll() is None:
+            process.kill()
+        process.wait()
+    return read(log), process.stderr.read().decode(errors="replace")
+
+
+def read(path):
+    try:
+        with open(path, encoding="utf-8", errors="replace") as handle:
+            return handle.read().replace("\r", "")
+    except OSError:
+        return ""
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
+    parser.add_argument("--image")
+    parser.add_argument("--uki")
+    parser.add_argument("--timeout", type=int, default=150, help="seconds a boot is given (default 150)")
+    parser.add_argument("--negative-timeout", type=int, default=45, help="seconds a refused boot is watched (default 45)")
+    parser.add_argument("--keep-logs", metavar="DIR")
+    args = parser.parse_args()
+    image = args.image or (sorted(glob.glob(os.path.join(ROOT, "mkosi.output", "ecp_*.raw")) or [None])[-1])
+    if not image or not os.path.exists(image):
+        sys.exit("no image: build one, or pass --image")
+    uki = args.uki or image[:-len(".raw")] + ".efi"
+    if not os.path.exists(uki):
+        sys.exit(f"no kernel image {uki}: pass --uki")
+    sbsign = sbsign_command()
+    from foundationd.backends import pe
+
+    with tempfile.TemporaryDirectory(prefix="ecp-sb.") as work:
+        good_key, good_crt = make_key(work, "good")
+        other_key, other_crt = make_key(work, "other")
+        auth_files(work, good_key, good_crt)
+        boot_loader = os.path.join(ROOT, "mkosi.tools/usr/lib/systemd/boot/efi/systemd-bootx64.efi")
+        if not os.path.exists(boot_loader):
+            boot_loader = first(glob.glob("/usr/lib/systemd/boot/efi/systemd-bootx64.efi"), "systemd-boot")
+        # readable boot messages: not quiet, kernel messages at info level (the kernel reports "locked down from EFI Secure Boot mode")
+        with open(uki, "rb") as handle:
+            original = handle.read()
+        readable = pe.rewrite_cmdline(original, lambda t: t.replace(" quiet", "").replace("loglevel=3", "loglevel=6"))
+        plain = os.path.join(work, "uki-plain.efi")
+        with open(plain, "wb") as handle:
+            handle.write(readable)
+        signed_uki, other_uki, tampered, signed_loader = (os.path.join(work, n) for n in ("uki-good.efi", "uki-other.efi", "uki-bad.efi", "loader-good.efi"))
+        sign(sbsign, good_key, good_crt, plain, signed_uki)
+        sign(sbsign, other_key, other_crt, plain, other_uki)
+        sign(sbsign, good_key, good_crt, boot_loader, signed_loader)
+        data = bytearray(open(signed_uki, "rb").read())
+        data[len(data) // 3] ^= 0xFF        # inside the kernel, well before the signature at the end
+        with open(tampered, "wb") as handle:
+            handle.write(data)
+        size_mb = (os.path.getsize(signed_uki) // (1024 * 1024)) + 24
+        loader_conf = os.path.join(work, "loader.conf")
+        with open(loader_conf, "w") as handle:
+            handle.write("timeout 0\nsecure-boot-enroll force\n")
+
+        def esp(name, uki_file, loader_file, keys=False):
+            files = {"EFI/BOOT/BOOTX64.EFI": loader_file, "EFI/Linux/ecp_test.efi": uki_file, "loader/loader.conf": loader_conf}
+            if keys:
+                files.update({f"loader/keys/auto/{k}.auth": os.path.join(work, k + ".auth") for k in ("PK", "KEK", "db")})
+            path = os.path.join(work, name + ".img")
+            make_esp(path, size_mb, files)
+            return path
+
+        template = first(VARS, "OVMF variable template")
+        results = []
+
+        def record(name, ok, detail):
+            results.append((name, ok))
+            print(f"  {'PASS' if ok else 'FAIL'}  {name}" + (f"  ({detail})" if detail else ""), flush=True)
+
+        def keep(name, text):
+            if args.keep_logs:
+                os.makedirs(args.keep_logs, exist_ok=True)
+                with open(os.path.join(args.keep_logs, name + ".log"), "w") as handle:
+                    handle.write(text)
+
+        def booted(text):
+            return "login:" in text and "locked down from EFI Secure Boot" in text
+
+        def started_kernel(text):
+            return "Linux version" in text or "locked down from EFI Secure Boot" in text or "login:" in text
+
+        # 1. enrol and boot
+        enrolled = os.path.join(work, "enrolled.fd")
+        shutil.copy(template, enrolled)
+        print("case: enrol the key, then boot the signed kernel image", flush=True)
+        text, err = boot(image, esp("good", signed_uki, signed_loader, keys=True), enrolled, os.path.join(work, "good.log"), args.timeout, True)
+        keep("enroll-and-boot", text)
+        record("systemd-boot enrolled the certificate (Setup Mode, auto-enrol)", "keys successfully enrolled" in text, "")
+        record("Secure Boot is on in the kernel", "locked down from EFI Secure Boot" in text, "")
+        record("the signed kernel image booted to a login prompt", booted(text), "" if booted(text) else "see --keep-logs")
+
+        # 2. the refusals, in an enforcing machine
+        refused = [("an unsigned kernel image is refused", esp("a", plain, signed_loader)),
+                   ("a kernel image signed by another certificate is refused", esp("b", other_uki, signed_loader)),
+                   ("a signed kernel image with one changed byte is refused", esp("c", tampered, signed_loader)),
+                   ("an unsigned systemd-boot is refused", esp("d", signed_uki, boot_loader))]
+        for name, image_path in refused:
+            print(f"case: {name}", flush=True)
+            variables = os.path.join(work, "case.fd")
+            shutil.copy(enrolled, variables)
+            text, err = boot(image, image_path, variables, os.path.join(work, "case.log"), args.negative_timeout, False)
+            keep(name.split(" is ")[0].replace(" ", "-"), text)
+            evidence = [m for m in ("Security Violation", "Access Denied", "Secure Boot") if m in text]
+            record(name, not started_kernel(text), ("firmware said: " + ", ".join(evidence)) if evidence else "no kernel started; no message captured")
+        failed = [n for n, ok in results if not ok]
+        print("\n" + ("ALL CHECKS PASSED" if not failed else f"{len(failed)} CHECK(S) FAILED"))
+        sys.exit(1 if failed else 0)
+
+
+if __name__ == "__main__":
+    main()

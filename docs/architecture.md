@@ -150,7 +150,8 @@ Not yet present: `Updates`, `Deploy` (installer), `Diagnostics`.
 | Read-only EROFS root, writable state elsewhere | built |
 | SELinux (targeted policy, relabelled at build) | configured; behaviour of `foundationd` and compat files under enforcing **untested** |
 | polkit on every state-changing call, files passed as descriptors, strict RPM unpacking | built and tested |
-| Signed update artifacts, signed UKI, Secure Boot | **not built**; plan: `mkosi` signing, root derived from the booted entry so a copied UKI stays signed |
+| Signed update artifacts | built and tested (GPG, `foundation update install` refuses unsigned or tampered; docs/features/updates.md) |
+| Signed UKI, Secure Boot | `secureboot` mkosi profile written, **not built**; firmware chain tested in QEMU (docs/features/secure-boot.md); signed images cannot be installed by update yet (the update rewrites the kernel command line) |
 | dm-verity sealed root (macOS-style) | **not built** |
 | TPM measurement, disk encryption | not built |
 

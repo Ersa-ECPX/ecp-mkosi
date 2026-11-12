@@ -1,0 +1,24 @@
+#!/usr/bin/env bash
+# Make the key and certificate that sign systemd-boot and the kernel images for UEFI Secure Boot.
+#
+#   scripts/make-secure-boot-key [DIRECTORY]       default: ./secure-boot (ignored by git; keep a backup elsewhere)
+#
+# Writes ersa-secure-boot.key (SECRET: whoever has it can make images the firmware trusts), ersa-secure-boot.crt (public,
+# PEM) and ersa-secure-boot.cer (the same certificate as DER, what firmware menus ask for). mkosi's secureboot profile reads
+# the first two from ./secure-boot/. This is a different key from the update signing key and the package repository key.
+# The certificate is valid for 10 years: firmware does not check dates, but keep it long so nothing needs re-enrolling.
+set -euo pipefail
+cd "$(dirname "$0")/.."
+dir="${1:-secure-boot}"
+command -v openssl >/dev/null || { echo "openssl is required" >&2; exit 1; }
+[[ ! -e "$dir/ersa-secure-boot.key" ]] || { echo "$dir/ersa-secure-boot.key already exists; refusing to replace a key" >&2; exit 1; }
+umask 077
+mkdir -p "$dir"
+openssl req -new -x509 -newkey rsa:3072 -nodes -sha256 -days 3650 \
+  -subj "/CN=Ersa Compute Platform Secure Boot/O=Ersa/" \
+  -keyout "$dir/ersa-secure-boot.key" -out "$dir/ersa-secure-boot.crt" 2>/dev/null
+openssl x509 -in "$dir/ersa-secure-boot.crt" -outform DER -out "$dir/ersa-secure-boot.cer"
+chmod 600 "$dir/ersa-secure-boot.key"
+echo "made $dir/ersa-secure-boot.{key,crt,cer}"
+openssl x509 -in "$dir/ersa-secure-boot.crt" -noout -fingerprint -sha256
+echo "Back up the .key somewhere safe: if it is lost, computers that enrolled the certificate cannot boot new images."
