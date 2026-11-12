@@ -1,0 +1,166 @@
+#!/usr/bin/env python3
+"""Boot a dm-verity image in QEMU, check that its root really is verity-protected, then corrupt it and check it refuses to boot.
+
+    scripts/build x86-64 --profile verity            # the A/B disk with a hash partition per slot
+    scripts/qemu-verity-test [--image IMG]           default: the newest mkosi.output/ecp_*.raw
+
+Boot 1 (the image attached read-only, as scripts/qemu-uefi-test does) runs a small program in the guest and the host reads
+its results back: the kernel command line has roothash=, the root filesystem is /dev/mapper/root (a dm-verity device), the slot
+partitions carry the fixed labels, and their UUIDs are the two halves of the root hash. Boot 2 uses a COPY of the image whose
+root partition has one block changed (a copy costs the image's allocated size; it is deleted afterwards): the system must not
+start, and the kernel log should name dm-verity. Nothing here is Secure Boot related (the firmware is plain OVMF).
+
+Needs: qemu-system-x86_64, OVMF, mkfs.ext4 and debugfs (e2fsprogs). Uses KVM when available.
+"""
+
+import argparse
+import glob
+import importlib.machinery
+import os
+import shutil
+import subprocess
+import sys
+import tempfile
+
+HERE = os.path.dirname(os.path.abspath(__file__))
+ROOT = os.path.abspath(os.path.join(HERE, ".."))
+sys.path.insert(0, os.path.join(ROOT, "foundation"))
+loader = importlib.machinery.SourceFileLoader("uefitest", os.path.join(HERE, "qemu-uefi-test"))
+uefitest = loader.load_module()
+
+GUEST = r'''
+import os, subprocess, sys, uuid
+
+def sh(cmd):
+    done = subprocess.run(cmd, shell=True, capture_output=True, text=True)
+    return (done.stdout + done.stderr).strip()
+
+def out(key, value):
+    print(f"{key}={value}", flush=True)
+
+cmdline = open("/proc/cmdline").read()
+roothash = ""
+for token in cmdline.split():
+    if token.startswith("roothash="):
+        roothash = token.split("=", 1)[1].lower()
+print("TEST-BEGIN")
+out("roothash_on_cmdline", bool(roothash))
+out("root_source", sh("findmnt -no SOURCE /"))
+out("root_options", sh("findmnt -no OPTIONS /"))
+out("dm_table", sh("dmsetup table 2>/dev/null | head -3").replace("\n", " | "))
+out("veritysetup", sh("veritysetup status root 2>&1 | grep -E 'type|status' | tr -s ' ' | tr '\\n' ';'"))
+labels = sh("ls /dev/disk/by-partlabel")
+out("labels", labels.replace("\n", " "))
+if roothash and len(roothash) == 64:
+    data, tree = uuid.UUID(roothash[:32]), uuid.UUID(roothash[32:])
+    out("data_partition_named_by_hash", os.path.exists(f"/dev/disk/by-partuuid/{data}"))
+    out("hash_partition_named_by_hash", os.path.exists(f"/dev/disk/by-partuuid/{tree}"))
+out("root_is_erofs", "erofs" in sh("findmnt -no FSTYPE /"))
+print("TEST-END")
+'''
+
+CHECKS = [
+    ("the kernel command line carries roothash=", lambda v: v.get("roothash_on_cmdline") == "True"),
+    ("the root is a device-mapper device", lambda v: v.get("root_source", "").startswith("/dev/mapper/")),
+    ("it is a dm-verity target", lambda v: "verity" in v.get("dm_table", "") or "VERITY" in v.get("veritysetup", "")),
+    ("the root is read-only EROFS", lambda v: "ro" in v.get("root_options", "").split(",") and v.get("root_is_erofs") == "True"),
+    ("the slot has the fixed labels", lambda v: "ecp-root-a" in v.get("labels", "") and "ecp-verity-a" in v.get("labels", "")),
+    ("the data partition's UUID is the first half of the root hash", lambda v: v.get("data_partition_named_by_hash") == "True"),
+    ("the hash partition's UUID is the second half", lambda v: v.get("hash_partition_named_by_hash") == "True"),
+]
+
+
+def data_disk(directory):
+    staging = os.path.join(directory, "disk")
+    os.makedirs(staging)
+    with open(os.path.join(staging, "check.py"), "w", encoding="utf-8") as handle:
+        handle.write(GUEST)
+    image = os.path.join(directory, "test-data.img")
+    with open(image, "wb") as handle:
+        handle.truncate(16 * 1024 * 1024)
+    subprocess.run(["mkfs.ext4", "-q", "-L", "ERSATEST", "-d", staging, image], check=True, capture_output=True)
+    return image
+
+
+def root_partition(image):
+    from foundationd.backends import gpt
+    for part in gpt.read_table(image):
+        if part.name == "ecp-root-a":
+            return part
+    sys.exit(f"{image} has no partition ecp-root-a: it is not a dm-verity image (build with --profile verity)")
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
+    parser.add_argument("--image")
+    parser.add_argument("--timeout", type=int, default=240)
+    parser.add_argument("--attempts", type=int, default=3)
+    parser.add_argument("--keep-logs", metavar="DIR")
+    parser.add_argument("--skip-tamper", action="store_true", help="only check the intact image")
+    args = parser.parse_args()
+    image = args.image or (sorted(glob.glob(os.path.join(ROOT, "mkosi.output", "ecp_*.raw")) or [None])[-1])
+    if not image or not os.path.exists(image):
+        sys.exit("no image: build one (scripts/build x86-64 --profile verity) or pass --image")
+    part = root_partition(image)
+    template = uefitest.first_existing(uefitest.OVMF_VARS, "OVMF variable template")
+    failures = 0
+    with tempfile.TemporaryDirectory(prefix="ecp-verity.", dir=os.environ.get("ECP_WORK_DIR") or None) as work:
+        data = data_disk(work)
+        values, text = None, ""
+        for attempt in range(1, args.attempts + 1):
+            vars_file, log = os.path.join(work, "vars.fd"), os.path.join(work, "serial.log")
+            shutil.copy(template, vars_file)
+            for path in (log, ):
+                if os.path.exists(path):
+                    os.unlink(path)
+            err = uefitest.boot(image, data, vars_file, "1", args.timeout, 4096, 2, log, extra="console=ttyS0 ignore_loglevel")
+            values, text = uefitest.parse(data, "1", log)
+            if args.keep_logs:
+                os.makedirs(args.keep_logs, exist_ok=True)
+                shutil.copy(log, os.path.join(args.keep_logs, f"intact-attempt{attempt}.log"))
+            if values is not None:
+                break
+            print(f"  the intact boot did not reach the test (attempt {attempt} of {args.attempts})", flush=True)
+        if values is None:
+            print("\nFAIL: the intact image never reported. End of the serial console:\n" + text[-2500:], file=sys.stderr)
+            return 1
+        print()
+        for title, check in CHECKS:
+            ok = bool(check(values))
+            failures += not ok
+            print(f"  {'PASS' if ok else 'FAIL'}  intact image: {title}")
+        if not ok_all(values):
+            print("\n  what the guest saw: " + "; ".join(f"{k}={v}" for k, v in values.items()))
+        if not args.skip_tamper:
+            print("\ncopying the image to change one block of its root partition ...", flush=True)
+            copy = os.path.join(work, "tampered.raw")
+            subprocess.run(["cp", "--reflink=auto", "--sparse=always", image, copy], check=True)
+            with open(copy, "r+b") as handle:
+                handle.seek(part.offset + 1024 + 4096 * 3)          # inside the filesystem, past its first blocks
+                original = handle.read(16)
+                handle.seek(part.offset + 1024 + 4096 * 3)
+                handle.write(bytes(b ^ 0xFF for b in original))
+            os.makedirs(os.path.join(work, "d2"))
+            data2 = data_disk(os.path.join(work, "d2"))
+            vars_file, log = os.path.join(work, "vars2.fd"), os.path.join(work, "tampered.log")
+            shutil.copy(template, vars_file)
+            uefitest.boot(copy, data2, vars_file, "1", 120, 4096, 2, log, extra="console=ttyS0 ignore_loglevel")
+            values2, text2 = uefitest.parse(data2, "1", log)
+            if args.keep_logs:
+                shutil.copy(log, os.path.join(args.keep_logs, "tampered.log"))
+            refused = values2 is None
+            failures += not refused
+            print(f"  {'PASS' if refused else 'FAIL'}  tampered image: the system does not start with a changed root block")
+            named = "verity" in text2.lower() or "data block" in text2.lower() or "corrupt" in text2.lower()
+            failures += not named
+            print(f"  {'PASS' if named else 'FAIL'}  tampered image: the kernel log names dm-verity or the corruption")
+    print("\n" + ("ALL CHECKS PASSED" if not failures else f"{failures} CHECK(S) FAILED"))
+    return 1 if failures else 0
+
+
+def ok_all(values):
+    return all(bool(check(values)) for _t, check in CHECKS)
+
+
+if __name__ == "__main__":
+    sys.exit(main())

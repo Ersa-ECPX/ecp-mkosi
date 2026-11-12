@@ -301,8 +301,8 @@ def main():
                     print(f"qemu said: {err[-300:]}", file=sys.stderr)
                 if values is not None:
                     break
-                # Some boots of the image stop in the initrd (emergency mode after a 90 s wait for the root or data partition's
-                # device links, which udev did not create). That is a problem of the boot, not of what is tested here: try again.
+                # Images before 0.1.1 sometimes stopped for 90 s (an ordering cycle between systemd-sysusers and systemd-sysext, fixed
+                # in the image sources); retry rather than fail on it.
                 print(f"  boot {phase} did not reach the test (attempt {attempt} of {args.attempts})"
                       + ("; it stopped in emergency mode" if "emergency mode" in text else ""), flush=True)
             if values is None:

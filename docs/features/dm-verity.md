@@ -18,6 +18,18 @@ partitions; a first boot with dm-verity; the tampered-block and failed-update te
 versions from labels (`copy`, `release`, the installer) for verity slots. Existing 0.1.x installations have no hash
 partitions: they need one reinstall to get the new layout (an update cannot add partitions).
 
+## Try it (first boot with dm-verity)
+
+```
+scripts/build x86-64 --profile verity            # the A/B disk: hash partition per slot, roothash= on the kernel image
+scripts/qemu-verity-test                         # intact image: verity root, labels, UUIDs = hash halves; tampered copy: refuses to boot
+```
+
+The normal image boots directly in QEMU; the installer is not involved. Written for this but **never run**: expect to fix
+things (the initrd's handling of the `/etc` overlay, the data volume mount, `systemd-veritysetup` in the initrd). A kernel
+command line has no `root=` in this build (mkosi.conf.d/15-root-label.conf is skipped by the profile); `/var` and `/home` are
+still found by the generic `LABEL=ECP-DATA` tokens, so a single-disk test boots.
+
 ## Why
 
 Secure Boot (docs/features/secure-boot.md) signs the kernel image, but the root filesystem is a plain partition: someone with
