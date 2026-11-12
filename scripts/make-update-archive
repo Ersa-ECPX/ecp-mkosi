@@ -10,7 +10,7 @@ Reads  mkosi.output/root/ecp_<version>.root-x86-64.raw.zst  (the root filesystem
        mkosi.output/root/ecp_<version>.root-verity-x86-64.raw.zst  (its dm-verity hash tree)
        mkosi.output/root/ecp_<version>.roothash                    (the root hash, which the kernel image also names)
 Writes dist/update/ecp_<version>-x86_64.tar.zst holding exactly: manifest.json (first), manifest.json.sig (with
---sign), root.erofs, verity.img, uki.efi. The manifest names the root hash and the size and SHA-256 of the three files. The manifest is what is signed and names the size and SHA-256 of the two big files.
+--sign), uki.efi, root.erofs, verity.img (the small kernel image comes first so the installer can read it before the images). The manifest names the root hash and the size and SHA-256 of the three files. The manifest is what is signed and names the size and SHA-256 of the two big files.
 The signing key must live outside this repository, in your GPG keyring (scripts/make-image-signing-key makes one;
 ECP_SIGN_PASSPHRASE_FILE names a file holding its passphrase, for unattended signing); the system trusts a key only if its public
 half is installed as /usr/share/foundation/keys/ersa-image-*.asc or /etc/foundation/keys/ersa-image-*.asc.
@@ -88,7 +88,7 @@ def main():
                 command += ["--pinentry-mode", "loopback", "--passphrase-file", os.environ["ECP_SIGN_PASSPHRASE_FILE"]]
             subprocess.run(command + [manifest_path], check=True)
             members.append(("manifest.json.sig", signature))
-        members += [("root.erofs", erofs), ("verity.img", tree), ("uki.efi", uki)]
+        members += [("uki.efi", uki), ("root.erofs", erofs), ("verity.img", tree)]
         with open(out, "wb") as target:
             compressor = subprocess.Popen(["zstd", "-T0", "-10", "-q"], stdin=subprocess.PIPE, stdout=target)
             with tarfile.open(fileobj=compressor.stdin, mode="w|") as tar:

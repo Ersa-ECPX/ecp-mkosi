@@ -19,7 +19,7 @@ checked (in QEMU, on virtual disks only) before they are described as working.
 
 The installer is an mkosi **profile** of the same OS, not a separate distribution: `scripts/build x86-64
 --profile installer`. It uses a minimal layout, defined in `mkosi.repart.installer/`: a 512 MiB ESP, **one**
-5 GiB root (labelled `ecp-live_<version>`; nothing on the stick is updated, so there is no slot B and no recovery
+8 GiB root (labelled `ecp-live`, with its hash partition `ecp-live-verity`; it also carries the operating system to install as a payload; nothing on the stick is updated, so there is no slot B and no recovery
 partition) and a 512 MiB btrfs data volume, `ECP-LIVE` (not `ECP-DATA`, so an installed disk is never mistaken for it), for the live session's `/var` and `/home` and the installer
 sysext. About 6 GiB in total, so it fits an 8 GB stick. The normal image (A/B slots) remains the one for QEMU testing.
 
@@ -106,13 +106,14 @@ OTA work and is out of scope for the first milestone.
 
 ## Deployment steps (implemented)
 
-1. Validate, then stage: copy the running ESP, with the running slot's kernel image renamed
-   `ecp_<v>+3.efi.partial` (systemd-boot ignores it), and build the data-volume seed (the `/etc`
-   overlay directories labelled `etc_t`, an empty `/home`). Read the root image's real length.
+1. Validate, then stage: read the payload's manifest and kernel image (the update archive of the normal image in
+   `/usr/share/ersa/payload/`), copy the medium's ESP with the payload's kernel image as `ecp_<v>+3.efi.partial` (systemd-boot
+   ignores it; the image is copied exactly as built), and build the data-volume seed (the `/etc` overlay directories
+   labelled `etc_t`, an empty `/home`).
 2. Commit (point of no return), then `systemd-repart --empty=force --offline=yes` with definitions
-   generated from `backends/layout.py`: ESP 1 GiB, recovery 1 GiB (reserved, empty), root A 8 GiB
-   (`ecp-root_<v>`), root B 8 GiB (`_empty`), `ECP-DATA` btrfs (`var`, `home`) taking the rest.
-3. Copy the root image into slot A, read both back from the disk and compare SHA-256.
+   generated from `backends/layout.py`: ESP 1 GiB, recovery 1 GiB (reserved, empty), root A 8 GiB and its hash partition
+   96 MiB (UUIDs from the root hash), root B and its hash partition (empty), `ECP-DATA` btrfs (`var`, `home`) taking the rest.
+3. Stream the root image and hash tree from the archive into slot A's partitions, read both back from the disk and compare SHA-256.
 4. Rename the kernel image to `ecp_<v>+3.efi` with `mren` (mtools, no mount). Only now can the disk boot, so an
    interrupted or failed install never looks bootable.
 5. `fsync`; the result lists the partitions.

@@ -32,13 +32,14 @@ ended up with an account but no home directory.
 
 - A **built image** (QEMU development, the root image updates are made from) names its data volume by label, which is
   fine with one disk (`mkosi.conf.d/30-data-mounts.conf`).
-- An **installed system** names its root and data volume by **PARTUUID**. `foundation deploy` creates the partitions
-  with UUIDs it picked, then rewrites the copied kernel image's command line to `root=PARTUUID=...` and
-  `systemd.mount-extra=PARTUUID=...:/var:btrfs:subvol=var,x-initrd.mount` (and `/home`). The padding argument `ecp.pad=` in every
-  built kernel image reserves room for the longer text; a test fails if the room ever stops being enough.
-- The **installer medium** also names its small data volume by label. Its root is labelled `ecp-live_<version>` (and
-  the kernel command line says so), not `ecp-root_<version>`, so an installed disk attached at the same time cannot be
-  taken for it ([installer medium](live-medium.md)).
+- The **root** is found by its dm-verity root hash (`roothash=` on the kernel image's command line; the partitions' UUIDs
+  are the two halves of the hash), never by a label or a per-install UUID: the kernel image is signed for Secure Boot and
+  is identical on every machine ([dm-verity](dm-verity.md)).
+- The **data volume** (`/var` and `/home`) is found by the generic `LABEL=ECP-DATA` tokens in that command line. This means
+  two disks with the label attached at once are ambiguous; a generator that finds the volume on the booted disk is planned
+  and not written.
+- The **installer medium** names its small data volume `ECP-LIVE` and its root `ecp-live` (with `ecp-live-verity`), so an
+  installed disk attached at the same time cannot be taken for it ([installer medium](live-medium.md)).
 
 **`/var` carries `x-initrd.mount`.** A `mount-extra=` entry is only mounted before switch-root with that option (as the old
 `fstab` line did). Without it `/sysroot/var` is never mounted in the initrd, the `/etc` overlay's directories do not

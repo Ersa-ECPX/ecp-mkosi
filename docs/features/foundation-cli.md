@@ -13,7 +13,7 @@ runs no other tool's command line. Everything it can do, a graphical client can 
 
 ```
 foundation status                         system, boot slot, storage and services
-foundation slot status|boot|copy|release  A/B boot slots
+foundation slot status|boot|release       A/B boot slots
 foundation splash light|dark              light or dark boot splash (next boot)
 foundation remote status                  SSH state, login method, firewall, keys (see remote-access.md)
 foundation remote ssh on|off              turn the SSH server on (keys only; --allow-password) or off

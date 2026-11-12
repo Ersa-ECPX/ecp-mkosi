@@ -44,7 +44,18 @@ installer=
 case " $* " in
   *" --profile installer "*|*" --profile=installer "*|*" -p installer "*) installer=1 ;;
 esac
-[[ -z "$installer" ]] || scripts/build-installer-sysext "$arch"
+if [[ -n "$installer" ]]; then
+  scripts/build-installer-sysext "$arch"
+  # the operating system the medium installs: the normal image's update archive (built by the root profile first)
+  version="$(sed -n 's/^ImageVersion=//p' mkosi.conf | head -n 1)"
+  for ((i = 1; i <= $#; i++)); do
+    case "${!i}" in
+      --image-version=*) version="${!i#--image-version=}" ;;
+      --image-version) j=$((i + 1)); version="${!j}" ;;
+    esac
+  done
+  scripts/stage-payload "$version"
+fi
 
 # Extra arguments go to mkosi.
 exec mkosi --architecture="$arch" "$@" build

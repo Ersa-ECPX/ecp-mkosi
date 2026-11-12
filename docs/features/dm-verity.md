@@ -1,33 +1,36 @@
 # dm-verity and the machine-independent kernel image (plan)
 
-**Status: the `foundation` side is written and unit-tested; the mkosi side is written but has never been built, and nothing has
-been booted with dm-verity.**
+**Status: dm-verity is the only layout. The `foundation` side, the installer and the update path are written and tested with
+synthetic disks and real `systemd-repart`; the mkosi side is written but no image has been built or booted with it.**
 
-Done and tested (unit tests with synthetic disks, no image): `foundationd/backends/verity.py` (root hash to partition UUIDs,
-`roothash=` from a kernel image); slot discovery by root hash for slots labelled `ecp-root-a`/`ecp-root-b` (older
-`ecp-root_<version>` slots still work); `foundation update install` of a **format 2** archive (the image, its hash tree, the
-root hash in the signed manifest) into the standby slot's two partitions, which are then named by the hash, with the signed
-kernel image copied byte for byte and the label never changed; a failed write leaves the slot unbootable; the older format 1
-archive is refused for a dm-verity slot; `scripts/make-update-archive` makes format 2 archives from the verity build outputs.
+Done and tested: `foundationd/backends/verity.py` (root hash to partition UUIDs, `roothash=` from a kernel image); slot
+discovery by root hash for slots labelled `ecp-root-a`/`ecp-root-b` (found under `/dev/mapper/root` through sysfs `slaves/`);
+`foundation update install` of an archive (the image, its hash tree, the root hash in the signed manifest) into the standby
+slot's two partitions, which are then named by the hash, with the signed kernel image copied byte for byte and the label never
+changed; a failed write leaves the slot unbootable; `foundation slot release`; `foundation deploy` from an installer medium's
+payload (the update archive of the normal image), also with the kernel image untouched; `scripts/make-update-archive`,
+`scripts/stage-payload`.
 
-Written, not built: the `verity` mkosi profile (`mkosi.repart.root-verity/`, `mkosi.repart.system-verity/`, `roothash` split
-artifact, `/drivers/md/` initrd modules). Its configuration resolves as intended (`mkosi --json summary`).
+Written, not built: the dm-verity partitions in `mkosi.repart.system/`, `mkosi.repart.root/` and `mkosi.repart.installer/`, no
+`root=` on the kernel command line, the `dm-verity` module and `libcryptsetup12` in the initrd, the `roothash` split artifact.
 
-Not done: the initrd generator that finds the data volume on the booted disk; the installer's disk layout and its copy of the
-partitions; a first boot with dm-verity; the tampered-block and failed-update tests in QEMU; the slot tools that still read
-versions from labels (`copy`, `release`, the installer) for verity slots. Existing 0.1.x installations have no hash
-partitions: they need one reinstall to get the new layout (an update cannot add partitions).
+Not done: the initrd generator that finds the data volume on the booted disk (the generic `LABEL=ECP-DATA` tokens are still
+used); a first boot with dm-verity; the tampered-block and failed-update tests in QEMU (`scripts/qemu-verity-test` is written);
+**automatic sync of the older slot to the newer OS after a good boot** (each slot would need its own verity salt, so the two
+slots have different root hashes and discovery stays unambiguous). Existing 0.1.x installations have no hash partitions: they
+need one reinstall (an update cannot add partitions). Removed: `foundation slot copy` (a copy has the same root hash and so
+the same UUIDs), per-install kernel command lines, label-per-version slots, format 1 archives.
 
 ## Try it (first boot with dm-verity)
 
 ```
-scripts/build x86-64 --profile verity            # the A/B disk: hash partition per slot, roothash= on the kernel image
+scripts/build x86-64                              # the A/B disk: hash partition per slot, roothash= on the kernel image
 scripts/qemu-verity-test                         # intact image: verity root, labels, UUIDs = hash halves; tampered copy: refuses to boot
 ```
 
 The normal image boots directly in QEMU; the installer is not involved. Written for this but **never run**: expect to fix
 things (the initrd's handling of the `/etc` overlay, the data volume mount, `systemd-veritysetup` in the initrd). A kernel
-command line has no `root=` in this build (mkosi.conf.d/15-root-label.conf is skipped by the profile); `/var` and `/home` are
+command line has no `root=` in this build (there is none in any build); `/var` and `/home` are
 still found by the generic `LABEL=ECP-DATA` tokens, so a single-disk test boots.
 
 ## Why

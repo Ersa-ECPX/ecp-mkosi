@@ -1,0 +1,22 @@
+#!/usr/bin/env bash
+# Stage the operating system for the installer medium: the update archive of the normal image, as
+# mkosi.installer.extra/usr/share/ersa/payload/ecp_<version>-x86_64.tar.zst. The installer profile puts it in the
+# medium's root, and `foundation deploy` writes it to the target disk (docs/features/deploy.md). It is made from the
+# `root` profile's output, so build that first:
+#
+#   scripts/build x86-64 --profile root --image-version VERSION
+#   scripts/stage-payload VERSION          # scripts/build does this for the installer profile
+#
+# Signed with ECP_SIGN_KEY when that is set (the medium does not need the signature: the payload is part of its own root,
+# which dm-verity protects, but a signed archive is also a usable update).
+set -euo pipefail
+cd "$(dirname "$0")/.."
+version="${1:?usage: scripts/stage-payload VERSION}"
+sign=()
+[[ -z "${ECP_SIGN_KEY:-}" ]] || sign=(--sign)
+scripts/make-update-archive "$version" "${sign[@]}" >/dev/null
+target=mkosi.installer.extra/usr/share/ersa/payload
+rm -rf "$target"
+mkdir -p "$target"
+cp --reflink=auto "dist/update/ecp_${version}-x86_64.tar.zst" "$target/"
+echo "staged $target/ecp_${version}-x86_64.tar.zst" >&2

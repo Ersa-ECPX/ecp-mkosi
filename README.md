@@ -84,8 +84,9 @@ The writable data volume is btrfs (subvolumes, so `/var` and `/home` share space
 | --- | --- | --- |
 | ESP, 1 GiB | FAT | UEFI boot files and one UKI per root slot |
 | ECP-RECOVERY, 1 GiB | none (reserved) | recovery environment, not implemented yet |
-| root slot A, 8 GiB | EROFS (uncompressed), read-only | the running OS, labeled `ecp-root_<version>` |
-| root slot B, 8 GiB | empty, labeled `_empty` | inactive slot that `systemd-sysupdate` writes the next version into |
+| root slot A, 8 GiB | EROFS, read-only, under dm-verity | the running OS, labeled `ecp-root-a`; named by its root hash |
+| hash partition A, 96 MiB | its dm-verity hash tree | labeled `ecp-verity-a` |
+| root slot B, 8 GiB (+ 96 MiB hash partition) | empty, labeled `ecp-root-b` / `ecp-verity-b` | inactive slot that the next update is written into |
 | ECP-DATA, at least 10 GiB, last | btrfs | one volume with two subvolumes: `var` (mounted at `/var`: logs, Flatpak applications and runtimes, container storage, the `/etc` overlay's upper layer) and `home` (mounted at `/home`: user data). They share free space and can be snapshotted, backed up or reset separately. |
 
 `/var` (the btrfs subvolume `var`) is mounted in the initrd (`systemd.mount-extra=` on the kernel command line, see `mkosi.conf.d/30-data-mounts.conf`; there is no `/etc/fstab` entry), and the `/etc` overlay is built on it there. Without a writable `/etc` early, PID 1 starts with the image's placeholder `/etc/machine-id` (`uninitialized`) and `dbus-broker` refuses to start. `/tmp` is a tmpfs because the root is read-only.
@@ -124,15 +125,15 @@ Zen Browser is not in the Tumbleweed repository (its Firefox is `MozillaFirefox`
 ```sh
 foundation status                       # system, running boot slot, storage, services
 foundation slot status                  # which slot you are on, boot assessment, every slot
-foundation slot boot 0.2.0-copy --once  # try another slot at the next boot only
-foundation slot copy --to empty2        # copy the running slot onto another (with a preview and a confirmation)
+foundation slot boot 0.2.0 --once        # try another slot at the next boot only
+foundation slot release 0.1.0            # empty a standby slot so an update can use it
 foundation apps install app.zen_browser.zen
 foundation compat install legacy.rpm    # run an RPM as a system extension, base untouched
 foundation ext list                     # sysext and confext images
 foundation config set ota.channel testing
 ```
 
-Implemented: boot state and slots (selection, copy, release), reboot, Flatpak applications (libflatpak), compat RPMs as system extensions, sysext/confext management, settings, and jobs with progress and cancellation. Not implemented: OTA updates (`Updates`), installing to a disk (`Deploy`), diagnostics, the recovery entry. The unit and test results are listed in [foundation/README.md](https://github.com/Ersa-ECPX/foundation/blob/main/README.md#verification-status); read that list before trusting any of it on hardware.
+Implemented: boot state and slots (selection, release), reboot, Flatpak applications (libflatpak), compat RPMs as system extensions, sysext/confext management, settings, and jobs with progress and cancellation. Not implemented: OTA updates (`Updates`), installing to a disk (`Deploy`), diagnostics, the recovery entry. The unit and test results are listed in [foundation/README.md](https://github.com/Ersa-ECPX/foundation/blob/main/README.md#verification-status); read that list before trusting any of it on hardware.
 
 ### Calls from the desktop through a paired phone
 
@@ -211,7 +212,7 @@ This **erases the entire device**. The script rejects mounted or undersized targ
 
 The update mechanism is **A/B root slots plus one UKI per slot**, using tools in openSUSE's systemd 261 (`systemd-sysupdate` is in the `systemd-experimental` package):
 
-- Each UKI is named `ecp_<version>+3.efi` and its command line has `root=PARTLABEL=ecp-root_<version>`, so booting a UKI selects its slot. `/etc/kernel/tries` sets the initial boot counter to 3.
+- Each UKI is named `ecp_<version>+3.efi` and its command line has `roothash=<hash>`, which names its slot's partitions (their UUIDs are the two halves of the hash), so booting a UKI selects its slot. `/etc/kernel/tries` sets the initial boot counter to 3.
 - `systemd-boot` counts tries down; `systemd-bless-boot` marks the entry good after the graphical target is reached with no failed units (`graphical.target.d/10-ecp-boot-assessment.conf`, `systemd-boot-check-no-failures`). After three failed tries the bootloader falls back to the previous UKI.
 - `mkosi.extra/usr/lib/sysupdate.d/` has the root and UKI transfers. `SplitArtifacts=uki,partitions` makes mkosi emit their payloads. The source URL is a placeholder (`updates.ersa.invalid`) and the split file names in the `MatchPattern` lines are unverified guesses until a build is inspected.
 
