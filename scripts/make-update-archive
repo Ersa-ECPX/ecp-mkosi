@@ -9,7 +9,8 @@ Reads  mkosi.output/root/ecp_<version>.root-x86-64.raw.zst  (the root filesystem
        mkosi.output/root/ecp_<version>.efi                  (the unified kernel image)
 Writes dist/update/ecp_<version>-x86_64.tar.zst holding exactly: manifest.json (first), manifest.json.sig (with
 --sign), root.erofs, uki.efi. The manifest is what is signed and names the size and SHA-256 of the two big files.
-The signing key must live outside this repository, in your GPG keyring; the system trusts a key only if its public
+The signing key must live outside this repository, in your GPG keyring (scripts/make-image-signing-key makes one;
+ECP_SIGN_PASSPHRASE_FILE names a file holding its passphrase, for unattended signing); the system trusts a key only if its public
 half is installed as /usr/share/foundation/keys/ersa-image-*.asc or /etc/foundation/keys/ersa-image-*.asc.
 """
 
@@ -69,7 +70,10 @@ def main():
         members = [("manifest.json", manifest_path)]
         if args.sign:
             signature = manifest_path + ".sig"
-            subprocess.run(["gpg", "--batch", "--yes", "--armor", "--detach-sign", "-u", key, "-o", signature, manifest_path], check=True)
+            command = ["gpg", "--batch", "--yes", "--armor", "--detach-sign", "-u", key, "-o", signature]
+            if os.environ.get("ECP_SIGN_PASSPHRASE_FILE"):
+                command += ["--pinentry-mode", "loopback", "--passphrase-file", os.environ["ECP_SIGN_PASSPHRASE_FILE"]]
+            subprocess.run(command + [manifest_path], check=True)
             members.append(("manifest.json.sig", signature))
         members += [("root.erofs", erofs), ("uki.efi", uki)]
         with open(out, "wb") as target:

@@ -4,6 +4,7 @@
 #   scripts/release 0.1.1                # build the installer image and the update, upload them to the release v0.1.1
 #   scripts/release 0.1.1 --draft        # create the release as a draft (review it on GitHub, then publish)
 #   scripts/release 0.1.1 --no-build     # reuse what is already in mkosi.output/ (and mkosi.output/root/)
+#   scripts/release 0.1.1 --sign         # sign the update with the GPG key in $ECP_SIGN_KEY (scripts/make-image-signing-key)
 #
 # What it makes (everything lands in dist/release/<version>/ and is uploaded):
 #   ecp-installer_<v>-x86_64.raw.zst[.partNN]   the installer medium (write it to a USB drive or boot it in QEMU)
@@ -13,18 +14,19 @@
 #   cat ecp-installer_<v>-x86_64.raw.zst.part* | zstd -d > ecp-installer_<v>.raw
 #
 # It needs mkosi (see scripts/build), zstd and an authenticated `gh`. The sources it compiles are cloned by
-# scripts/prepare-build (via scripts/fetch-sources). Nothing is signed: updates are installed with --unsigned until an
-# image signing key exists, and the release is marked as a pre-release.
+# scripts/prepare-build (via scripts/fetch-sources). The update is signed only with --sign; without it, install
+# needs --unsigned. The release is marked as a pre-release.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
 version="${1:-}"; shift || true
 [[ "$version" =~ ^[0-9]+(\.[0-9]+)*([.+-][A-Za-z0-9.]+)?$ ]] || { echo "usage: scripts/release VERSION [--draft] [--no-build]" >&2; exit 2; }
-draft=() ; build=1
+draft=() ; build=1; sign=()
 for arg in "$@"; do
   case "$arg" in
     --draft) draft=(--draft) ;;
     --no-build) build=0 ;;
+    --sign) sign=(--sign) ;;
     *) echo "unknown option: $arg" >&2; exit 2 ;;
   esac
 done
@@ -39,7 +41,7 @@ if (( build )); then
   # sysext (scripts/build-installer-sysext) takes the SELinux file labels from that package.
   scripts/build x86-64 --profile root --image-version "$version"
   scripts/build x86-64 --profile installer --image-version "$version"
-  scripts/make-update-archive "$version" >/dev/null
+  scripts/make-update-archive "$version" "${sign[@]}" >/dev/null
 fi
 
 out="dist/release/$version"
@@ -61,10 +63,11 @@ done
 ( cd "$out" && sha256sum --binary * > SHA256SUMS )
 ls -la "$out" >&2
 
+if (( ${#sign[@]} )); then how=" (signed: the system checks the signature)"; else how=" (not signed: add --unsigned)"; fi
 notes="Early preview of the Ersa Compute Platform ${version}. Tested in virtual machines only (QEMU/KVM, UEFI); real hardware is untested.
 
 - ecp-installer_${version}-x86_64.raw.zst: the installer medium (boot it in a VM, or write it to a USB drive).
-- ecp_${version}-x86_64.tar.zst: an update for an installed system: \`foundation update install FILE --unsigned\`. It is not signed yet.
+- ecp_${version}-x86_64.tar.zst: an update for an installed system: \`foundation update install FILE\`${how}.
 - Files larger than 2 GiB are split: \`cat FILE.partNN... | zstd -d > image.raw\`.
 Check downloads against SHA256SUMS."
 gh release create "$tag" -R "$repo" --target main --prerelease "${draft[@]}" \

@@ -1,0 +1,57 @@
+#!/usr/bin/env bash
+# Make the key that signs system image updates, and say what to do with it. Nothing is uploaded anywhere.
+#
+#   scripts/make-image-signing-key [OUTPUT_DIR]        default: ./image-signing-key (keep it OUT of the git repository)
+#
+# This is NOT the package repository key (packages/scripts/make-signing-key): compromise of one must not give the other.
+#
+# It writes into OUTPUT_DIR:
+#   ersa-image-<id>.asc    the PUBLIC key. Copy it to foundation/data/keys/ and commit it: it is installed in
+#                          /usr/share/foundation/keys/, which is where `foundation update install` looks for keys it trusts
+#   secret-key.asc         the SECRET key, for a CI secret or a backup. Delete it from this machine afterwards
+#   passphrase.txt         its passphrase
+#   gnupg/                 a keyring holding the key, so you can sign here:
+#       export GNUPGHOME=$PWD/OUTPUT_DIR/gnupg ECP_SIGN_PASSPHRASE_FILE=$PWD/OUTPUT_DIR/passphrase.txt ECP_SIGN_KEY=<fingerprint>
+#       scripts/make-update-archive 0.2.0 --sign
+# The key does not expire: a signature by an expired key is refused, which would strand every installed system. Replace it by
+# shipping the new public key in an update first (the system trusts every ersa-image-*.asc it has), then signing with the new
+# one; revoke the old one only after the systems that matter have the new key.
+set -euo pipefail
+out="${1:-image-signing-key}"
+command -v gpg >/dev/null || { echo "gpg is required" >&2; exit 1; }
+[[ ! -e "$out" ]] || { echo "$out already exists; choose another folder or remove it" >&2; exit 1; }
+umask 077
+mkdir -p "$out/gnupg"
+out="$(cd "$out" && pwd)"
+export GNUPGHOME="$out/gnupg"
+passphrase="$(head -c 24 /dev/urandom | base64 | tr -d '/+=' | head -c 32)"
+printf '%s' "$passphrase" > "$out/passphrase.txt"
+cat > "$out/params" <<P
+%echo making the image signing key
+Key-Type: eddsa
+Key-Curve: ed25519
+Key-Usage: sign
+Name-Real: Ersa Compute Platform image signing
+Name-Email: images@ersa.dev
+Expire-Date: 0
+Passphrase: $passphrase
+%commit
+P
+gpg --batch --quiet --generate-key "$out/params"
+rm -f "$out/params"
+fingerprint="$(gpg --batch --list-keys --with-colons | awk -F: '$1 == "fpr" {print $10; exit}')"
+public="$out/ersa-image-${fingerprint: -16}.asc"
+gpg --batch --armor --export "$fingerprint" > "$public"
+gpg --batch --pinentry-mode loopback --passphrase "$passphrase" --armor --export-secret-keys "$fingerprint" > "$out/secret-key.asc"
+cat <<M
+
+Key made: $fingerprint
+
+1. Commit the public key so every image trusts it:
+     cp $public foundation/data/keys/ && git add foundation/data/keys && git commit
+2. Keep a backup of secret-key.asc and passphrase.txt somewhere safe (a password manager). If they are lost, no new update
+   can be signed for the systems that trust this key.
+3. Sign an update:
+     export GNUPGHOME=$out/gnupg ECP_SIGN_PASSPHRASE_FILE=$out/passphrase.txt ECP_SIGN_KEY=$fingerprint
+     scripts/make-update-archive VERSION --sign
+M

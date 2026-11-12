@@ -45,9 +45,30 @@ scripts/make-update-archive 0.2.0 [--sign]             # dist/update/ecp_0.2.0-x
 foundation update install dist/update/ecp_0.2.0-x86_64.tar.zst --unsigned
 ```
 
-`--sign` signs `manifest.json` with the GPG key in `ECP_SIGN_KEY` (kept outside the repository). The system trusts a key
-only if its public half is installed as `/usr/share/foundation/keys/ersa-image-*.asc` or
-`/etc/foundation/keys/ersa-image-*.asc`; **no such key is shipped yet.**
+### Signing
+
+Make the image signing key once, on a machine you trust (this is not the package repository key):
+
+```
+scripts/make-image-signing-key ~/ersa-image-key          # keep it outside the repository; prints the next steps
+cp ~/ersa-image-key/ersa-image-*.asc foundation/data/keys/ && git add foundation/data/keys   # every image then trusts it
+export GNUPGHOME=~/ersa-image-key/gnupg ECP_SIGN_PASSPHRASE_FILE=~/ersa-image-key/passphrase.txt ECP_SIGN_KEY=<fingerprint>
+scripts/make-update-archive 0.2.0 --sign                 # or: scripts/release 0.2.0 --sign
+foundation update install dist/update/ecp_0.2.0-x86_64.tar.zst        # no --unsigned
+```
+
+The system trusts a key only if its public half is installed as `/usr/share/foundation/keys/ersa-image-*.asc` or
+`/etc/foundation/keys/ersa-image-*.asc`, and **no such key is committed yet**: until one is, an installed system refuses a signed
+update with "no image signing key is installed". The check (`repos.verify_detached`) accepts only a good signature by a key
+that is neither expired nor revoked; gpg's own exit status says "ok" for those, so it reads the status lines. The key does not
+expire. To replace it, ship the new public key in an update first (any trusted `ersa-image-*.asc` is enough), sign with the new
+key afterwards, and revoke the old one last.
+
+Tested: a good signature; a manifest changed after signing; a signature by a key that is not trusted; garbage and empty
+signatures; two trusted keys (key change); an expired key; a revoked key; the key script and the archive script together,
+with the passphrase from a file. All of these refuse before the spare slot is touched. Not tested: an installed system
+verifying with the key shipped in the image (that needs a rebuilt image with a committed key), and a downgrade to an older,
+validly signed version (not refused today).
 
 ### Trying it in QEMU
 
