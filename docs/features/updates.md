@@ -1,5 +1,8 @@
 # Updates (OTA)
 
+> **Note:** the `systemd-sysupdate` transfer definitions (`/usr/lib/sysupdate.d`) were removed: they named slots by `ecp-root_<version>` labels, which dm-verity replaced, and `foundation update install` is the update path. The sysupdate-based text below, `scripts/publish-update`, `scripts/serve-update` and `docs/ota-hosting.md` describe the older design and are not current.
+
+
 **Status:** partly built. Installing an update **from a file** is built and unit-tested against fake disks and images. It has **not been
 run on a booted system**, and there is no update server, no shipped signing key and no automatic checking. Do not rely
 on it yet.
