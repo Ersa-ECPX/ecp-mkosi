@@ -45,6 +45,7 @@ below is the wiki's sidebar (`docs/wiki.json`).
 | [Configuration and provisioning](features/configuration.md) | settings with a schema, the first-boot "provisioned" state | Built; tested |
 | [`foundation deploy`](features/deploy.md) | erase a disk and install the running system on it, safely | Built; tested on files and in QEMU; not on real disks |
 | [System extensions](features/system-extensions.md) | `foundation ext`, RPM files as extensions, rechecking after an OS update | Built; tested |
+| [Remote access](features/remote-access.md) | the SSH server on or off with safe defaults, and the keys that may log in | Built; key login tried in a VM |
 | [foundationd design](foundationd.md), [Provisioning](provisioning.md) | the service's design and open questions; first boot and device management | design |
 
 ### App support: getting software onto an immutable system

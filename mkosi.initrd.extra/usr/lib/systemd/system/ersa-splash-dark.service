@@ -1,0 +1,14 @@
+[Unit]
+Description=Use the dark boot splash theme
+Documentation=file:///usr/share/doc/foundation/README.md
+DefaultDependencies=no
+Before=plymouth-start.service
+After=sys-firmware-efi-efivars.mount
+# `foundation splash dark` creates this UEFI variable (and `light` removes it). The kernel image carries no splash setting, so it
+# can be signed. The unit does nothing when the variable is absent, which is the light (default) theme.
+ConditionPathExists=/sys/firmware/efi/efivars/ErsaSplashDark-7c1d3f52-8a4e-4b6a-9e0d-3b5f2a7c9e14
+
+[Service]
+Type=oneshot
+# One tmpfiles line: make /etc/plymouth/plymouthd.conf (of the initrd) a link to the dark configuration.
+ExecStart=/usr/bin/systemd-tmpfiles --create /usr/lib/ersa/splash-dark.tmpfiles.conf
