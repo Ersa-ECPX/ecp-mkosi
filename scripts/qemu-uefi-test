@@ -158,7 +158,7 @@ def data_disk(directory):
     return image
 
 
-def boot(image, data, vars_file, phase, timeout, memory, cpus, log_path, debug=False):
+def boot(image, data, vars_file, phase, timeout, memory, cpus, log_path, debug=False, extra="", qemu_args=(), blk_props=""):
     qemu = shutil.which("qemu-system-x86_64") or sys.exit("qemu-system-x86_64 is not installed")
     code = first_existing(OVMF_CODE, "OVMF firmware")
     kvm = os.access("/dev/kvm", os.R_OK | os.W_OK)
@@ -167,14 +167,17 @@ def boot(image, data, vars_file, phase, timeout, memory, cpus, log_path, debug=F
            "-m", str(memory), "-smp", str(cpus), "-no-reboot",
            "-drive", f"if=pflash,format=raw,readonly=on,file={code}",
            "-drive", f"if=pflash,format=raw,file={vars_file}",
-           "-drive", f"file={image},format=raw,if=virtio,snapshot=on,cache=unsafe",
-           "-drive", f"file={data},format=raw,if=virtio",
+           "-drive", f"file={image},format=raw,if=none,id=sys,snapshot=on,cache=unsafe",
+           "-device", "virtio-blk-pci,drive=sys" + (("," + blk_props) if blk_props else ""),
+           "-drive", f"file={data},format=raw,if=none,id=tst",
+           "-device", "virtio-blk-pci,drive=tst" + (("," + blk_props) if blk_props else ""),
            "-device", "virtio-rng-pci", "-display", "none", "-vga", "std", "-monitor", "none",
            "-serial", f"file:{log_path}",
            "-smbios", f"type=11,value=io.systemd.credential.binary:systemd.extra-unit.ecp-uefi-test.service={credential}",
            "-smbios", "type=11,value=io.systemd.stub.kernel-cmdline-extra=systemd.wants=ecp-uefi-test.service"
            # console=ttyS0 is needed: without it these boots never finished in testing (reason not found), with it they do
-           + " console=ttyS0" + (" loglevel=6 systemd.log_target=console systemd.log_level=info systemd.show_status=1" if debug else "")]
+           + " console=ttyS0" + (" " + extra if extra else "") + (" loglevel=6 systemd.log_target=console systemd.log_level=debug udev.log_level=debug systemd.show_status=1" if debug else ""),
+           *qemu_args]
     print(f"boot {phase}: {os.path.basename(image)} ({'KVM' if kvm else 'TCG, slow'}), timeout {timeout}s", flush=True)
     start = time.monotonic()
     process = subprocess.Popen(cmd, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
@@ -246,6 +249,9 @@ def main():
     parser.add_argument("--keep-logs", metavar="DIR", help="copy the serial logs of both boots here")
     parser.add_argument("--debug", action="store_true", help="also send the guest's boot messages to the serial log")
     parser.add_argument("--only", choices=("1", "2"), help="run only this boot (debugging)")
+    parser.add_argument("--qemu-arg", action="append", default=[], metavar="ARG", help="an extra QEMU argument (repeatable; for experiments)")
+    parser.add_argument("--blk-props", default="", metavar="PROPS", help="properties for the virtio-blk devices, for experiments (for example vectors=0)")
+    parser.add_argument("--cmdline", default="", metavar="TOKENS", help="extra kernel command line tokens (for experiments, such as plymouth.enable=0)")
     parser.add_argument("--attempts", type=int, default=4, help="tries per boot when the machine does not reach the test (default 4)")
     args = parser.parse_args()
 
@@ -266,7 +272,7 @@ def main():
             log = os.path.join(directory, f"serial-{phase}.log")
             values = None
             for attempt in range(1, args.attempts + 1):
-                err = boot(image, data, vars_file, phase, args.timeout, args.memory, args.cpus, log, args.debug)
+                err = boot(image, data, vars_file, phase, args.timeout, args.memory, args.cpus, log, args.debug, args.cmdline, args.qemu_arg, args.blk_props)
                 values, text = parse(data, phase, log)
                 if args.keep_logs:
                     os.makedirs(args.keep_logs, exist_ok=True)
