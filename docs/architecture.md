@@ -152,7 +152,7 @@ Not yet present: `Updates`, `Deploy` (installer), `Diagnostics`.
 | polkit on every state-changing call, files passed as descriptors, strict RPM unpacking | built and tested |
 | Signed update artifacts | built and tested (GPG, `foundation update install` refuses unsigned or tampered; docs/features/updates.md) |
 | Signed UKI, Secure Boot | `SecureBoot=yes` in mkosi.conf (every image signed), **not built yet**; firmware chain tested in QEMU (docs/features/secure-boot.md); signed images cannot be installed by update yet (the update rewrites the kernel command line) |
-| dm-verity sealed root (macOS-style) | **not built** |
+| dm-verity sealed root (macOS-style) | **not built**; plan and checks in docs/features/dm-verity.md |
 | TPM measurement, disk encryption | not built |
 
 ## Build and release
