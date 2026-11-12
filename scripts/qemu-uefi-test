@@ -158,7 +158,7 @@ def data_disk(directory):
     return image
 
 
-def boot(image, data, vars_file, phase, timeout, memory, cpus, log_path, debug=False, extra="", qemu_args=(), blk_props=""):
+def boot(image, data, vars_file, phase, timeout, memory, cpus, log_path, debug=False, extra="", qemu_args=(), blk_props="", sysrq_at=()):
     qemu = shutil.which("qemu-system-x86_64") or sys.exit("qemu-system-x86_64 is not installed")
     code = first_existing(OVMF_CODE, "OVMF firmware")
     kvm = os.access("/dev/kvm", os.R_OK | os.W_OK)
@@ -171,7 +171,7 @@ def boot(image, data, vars_file, phase, timeout, memory, cpus, log_path, debug=F
            "-device", "virtio-blk-pci,drive=sys" + (("," + blk_props) if blk_props else ""),
            "-drive", f"file={data},format=raw,if=none,id=tst",
            "-device", "virtio-blk-pci,drive=tst" + (("," + blk_props) if blk_props else ""),
-           "-device", "virtio-rng-pci", "-display", "none", "-vga", "std", "-monitor", "none",
+           "-device", "virtio-rng-pci", "-display", "none", "-vga", "std", *(("-monitor", f"unix:{log_path}.mon,server,nowait") if sysrq_at else ("-monitor", "none")),
            "-serial", f"file:{log_path}",
            "-smbios", f"type=11,value=io.systemd.credential.binary:systemd.extra-unit.ecp-uefi-test.service={credential}",
            "-smbios", "type=11,value=io.systemd.stub.kernel-cmdline-extra=systemd.wants=ecp-uefi-test.service"
@@ -181,6 +181,24 @@ def boot(image, data, vars_file, phase, timeout, memory, cpus, log_path, debug=F
     print(f"boot {phase}: {os.path.basename(image)} ({'KVM' if kvm else 'TCG, slow'}), timeout {timeout}s", flush=True)
     start = time.monotonic()
     process = subprocess.Popen(cmd, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
+    if sysrq_at:
+        import socket
+        import threading
+
+        def dump():
+            """At each given second press the SysRq keys on the guest's keyboard: t = every task's stack, w = blocked tasks."""
+            for moment in sysrq_at:
+                time.sleep(max(0, start + moment - time.monotonic()))
+                try:
+                    client = socket.socket(socket.AF_UNIX)
+                    client.connect(log_path + ".mon")
+                    for key in ("t", "w"):
+                        client.sendall(f"sendkey alt-sysrq-{key}\n".encode())
+                        time.sleep(1)
+                    client.close()
+                except OSError:
+                    return
+        threading.Thread(target=dump, daemon=True).start()
     try:
         _out, err = process.communicate(timeout=timeout)
     except subprocess.TimeoutExpired:
@@ -251,6 +269,7 @@ def main():
     parser.add_argument("--only", choices=("1", "2"), help="run only this boot (debugging)")
     parser.add_argument("--qemu-arg", action="append", default=[], metavar="ARG", help="an extra QEMU argument (repeatable; for experiments)")
     parser.add_argument("--blk-props", default="", metavar="PROPS", help="properties for the virtio-blk devices, for experiments (for example vectors=0)")
+    parser.add_argument("--sysrq-at", default="", metavar="SECONDS", help="comma-separated seconds after start to dump every task's stack and the blocked tasks (SysRq t and w) into the serial log; add sysrq_always_enabled=1 to --cmdline")
     parser.add_argument("--cmdline", default="", metavar="TOKENS", help="extra kernel command line tokens (for experiments, such as plymouth.enable=0)")
     parser.add_argument("--attempts", type=int, default=4, help="tries per boot when the machine does not reach the test (default 4)")
     args = parser.parse_args()
@@ -272,7 +291,8 @@ def main():
             log = os.path.join(directory, f"serial-{phase}.log")
             values = None
             for attempt in range(1, args.attempts + 1):
-                err = boot(image, data, vars_file, phase, args.timeout, args.memory, args.cpus, log, args.debug, args.cmdline, args.qemu_arg, args.blk_props)
+                err = boot(image, data, vars_file, phase, args.timeout, args.memory, args.cpus, log, args.debug, args.cmdline, args.qemu_arg, args.blk_props,
+                       [int(x) for x in args.sysrq_at.split(',') if x])
                 values, text = parse(data, phase, log)
                 if args.keep_logs:
                     os.makedirs(args.keep_logs, exist_ok=True)
