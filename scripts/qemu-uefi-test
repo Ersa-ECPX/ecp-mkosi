@@ -1,0 +1,297 @@
+#!/usr/bin/env python3
+"""Try the boot splash's UEFI variable on real UEFI firmware (OVMF) in QEMU: write it, reboot, find it again, remove it.
+
+    scripts/qemu-uefi-test [IMAGE]        default: mkosi.output/ecp_*.raw (the newest root image)
+
+Boots the image twice with the same firmware variable store, so a non-volatile variable written in the first boot has to survive
+into the second. The image is attached with snapshot=on and is never modified. Each boot runs a small program from a second disk
+(label ERSATEST; the guest writes its results there and the host reads them back) through the same credential trick as scripts/qemu-smoke. The program uses the foundation splash code
+from this checkout (foundation/foundationd/backends/splash.py), not the copy in the image, so an older image can be used.
+
+What it checks, in the guest (the same checks a person would make by hand):
+  boot 1  efivarfs is mounted; the variable does not exist yet and a unit conditioned on it (ConditionPathExists, which is how the
+          initrd's ersa-splash-dark.service is conditioned) is skipped; set_theme("dark") creates it with the right attributes and
+          value; the same conditioned unit now runs
+  boot 2  the variable is still there after a power cycle; the conditioned unit still runs; the tmpfiles line of the initrd unit
+          turns a plymouthd.conf into the dark one; set_theme("light") removes the variable (efivarfs marks it immutable, which
+          the code clears); the conditioned unit is skipped again; creating it once more works
+
+It does NOT test the initrd (that needs an image built with mkosi.initrd.extra/ersa-splash-dark.service) or real firmware.
+Needs: qemu-system-x86_64, OVMF, mkfs.ext4 and debugfs (e2fsprogs). Uses KVM when available.
+"""
+
+import argparse
+import base64
+import glob
+import os
+import re
+import shutil
+import subprocess
+import sys
+import tempfile
+import time
+
+HERE = os.path.dirname(os.path.abspath(__file__))
+ROOT = os.path.join(HERE, "..")
+OVMF_CODE = ("/usr/share/edk2/x64/OVMF_CODE.4m.fd", "/usr/share/OVMF/OVMF_CODE_4M.fd", "/usr/share/edk2/ovmf/OVMF_CODE.fd",
+             "/usr/share/OVMF/OVMF_CODE.fd")
+OVMF_VARS = ("/usr/share/edk2/x64/OVMF_VARS.4m.fd", "/usr/share/OVMF/OVMF_VARS_4M.fd", "/usr/share/edk2/ovmf/OVMF_VARS.fd",
+             "/usr/share/OVMF/OVMF_VARS.fd")
+
+GUEST = r'''
+import os, struct, subprocess, sys
+
+phase = sys.argv[1]
+sys.path.insert(0, "/run/ersatest/lib")
+from foundationd.backends import splash
+
+EFI = "/sys/firmware/efi/efivars"
+path = os.path.join(EFI, splash.VARIABLE)
+paths = {"efivars": EFI, "root": "/tmp/fakeroot"}
+
+
+class Ctx:
+    def step(self, *a): pass
+    def progress(self, *a): pass
+
+
+def out(key, value):
+    print(f"{key}={value}", flush=True)
+
+
+def condition_runs():
+    """Does a unit conditioned on the variable's file run? (what ersa-splash-dark.service relies on)"""
+    marker = "/tmp/condition-ran"
+    if os.path.exists(marker):
+        os.unlink(marker)
+    subprocess.run(["systemd-run", "--wait", "--collect", "--quiet", "-p", f"ConditionPathExists={path}", "/usr/bin/touch", marker],
+                   capture_output=True)
+    return os.path.exists(marker)
+
+
+os.makedirs("/tmp/fakeroot/etc/plymouth", exist_ok=True)
+with open("/tmp/fakeroot/etc/plymouth/plymouthd.conf", "w") as handle:
+    handle.write("[Daemon]\nTheme=ersa\n")
+
+print("TEST-BEGIN")
+out("phase", phase)
+out("uefi_boot", os.path.isdir("/sys/firmware/efi"))
+out("efivarfs", subprocess.run(["findmnt", "-n", "-o", "FSTYPE", EFI], capture_output=True, text=True).stdout.strip() or "(not mounted)")
+if phase == "1":
+    out("absent_at_start", not os.path.exists(path))
+    out("condition_runs_when_absent", condition_runs())
+    result = splash.set_theme(paths, "dark", Ctx())
+    out("changed", "; ".join(result["changed"]))
+    out("exists_after_set", os.path.exists(path))
+    data = open(path, "rb").read()
+    out("attributes", hex(struct.unpack("<I", data[:4])[0]))
+    out("value", data[4:].hex())
+    out("immutable_flag", "i" in subprocess.run(["lsattr", "-d", path], capture_output=True, text=True).stdout.split()[0])
+    out("condition_runs_when_present", condition_runs())
+else:
+    out("exists_after_reboot", os.path.exists(path))
+    out("condition_runs_after_reboot", condition_runs())
+    root = "/tmp/initrdroot"
+    os.makedirs(root + "/etc/plymouth", exist_ok=True)
+    open(root + "/etc/plymouth/plymouthd.conf", "w").write("[Daemon]\nTheme=ersa\n")
+    open(root + "/etc/plymouth/plymouthd-dark.conf", "w").write("[Daemon]\nTheme=ersa-dark\n")
+    done = subprocess.run(["systemd-tmpfiles", "--create", "--root=" + root, "/run/ersatest/splash-dark.tmpfiles.conf"],
+                          capture_output=True, text=True)
+    out("tmpfiles_rc", done.returncode)
+    link = root + "/etc/plymouth/plymouthd.conf"
+    out("tmpfiles_is_link_to", os.readlink(link) if os.path.islink(link) else "(not a link)")
+    # the link is absolute (/etc/plymouth/plymouthd-dark.conf): inside the initrd that is the initrd's own /etc; here, the scratch root
+    target = root + os.readlink(link) if os.path.islink(link) else link
+    out("tmpfiles_theme", splash.theme_of(open(target).read()))
+    result = splash.set_theme(paths, "light", Ctx())
+    out("changed", "; ".join(result["changed"]))
+    out("removed_after_light", not os.path.exists(path))
+    out("condition_runs_after_light", condition_runs())
+    splash.set_theme(paths, "dark", Ctx())
+    out("recreated", os.path.exists(path))
+    splash.set_theme(paths, "light", Ctx())
+    out("removed_again", not os.path.exists(path))
+print("TEST-END")
+'''
+
+
+def first_existing(paths, what):
+    for path in paths:
+        if os.path.exists(path):
+            return path
+    sys.exit(f"cannot find {what}; looked in: {', '.join(paths)}")
+
+
+def unit_text(phase):
+    # The results are written to the data disk and read back by the host afterwards. The serial port is not used: it is shared with
+    # the login prompt, which resets it, and a unit writing to it hung boots. No single quotes in here: the whole script is
+    # single-quoted.
+    script = ("timeout 240 systemctl is-system-running --wait >/dev/null 2>&1; mkdir -p /run/ersatest; "
+              "mount LABEL=ERSATEST /run/ersatest; "
+              "python3 /run/ersatest/check.py " + phase + " >/run/ersatest/result-" + phase + ".txt 2>&1; echo python-rc=$? >>/run/ersatest/result-" + phase + ".txt; "
+              "sync; umount /run/ersatest; systemctl poweroff")
+    escaped = script.replace("%", "%%").replace("$", "$$")
+    return ("[Unit]\nDescription=Ersa Compute Platform UEFI variable test\nAfter=multi-user.target\n\n"
+            "[Service]\nType=simple\nStandardOutput=null\nStandardError=null\n"
+            f"ExecStart=/bin/sh -c '{escaped}'\n")
+
+
+def data_disk(directory):
+    """A small ext4 image holding the test program and the code under test."""
+    staging = os.path.join(directory, "disk")
+    package = os.path.join(staging, "lib", "foundationd")
+    os.makedirs(os.path.join(package, "backends"))
+    for name in ("__init__.py",):
+        open(os.path.join(package, name), "w").close()
+        open(os.path.join(package, "backends", name), "w").close()
+    source = os.path.join(ROOT, "foundation", "foundationd")
+    shutil.copy(os.path.join(source, "errors.py"), package)
+    shutil.copy(os.path.join(source, "backends", "splash.py"), os.path.join(package, "backends"))
+    tmpfiles = os.path.join(ROOT, "mkosi.initrd.extra", "usr", "lib", "ersa", "splash-dark.tmpfiles.conf")
+    shutil.copy(tmpfiles, os.path.join(staging, "splash-dark.tmpfiles.conf"))
+    with open(os.path.join(staging, "check.py"), "w", encoding="utf-8") as handle:
+        handle.write(GUEST)
+    image = os.path.join(directory, "test-data.img")
+    with open(image, "wb") as handle:
+        handle.truncate(16 * 1024 * 1024)
+    subprocess.run(["mkfs.ext4", "-q", "-L", "ERSATEST", "-d", staging, image], check=True, capture_output=True)
+    return image
+
+
+def boot(image, data, vars_file, phase, timeout, memory, cpus, log_path, debug=False):
+    qemu = shutil.which("qemu-system-x86_64") or sys.exit("qemu-system-x86_64 is not installed")
+    code = first_existing(OVMF_CODE, "OVMF firmware")
+    kvm = os.access("/dev/kvm", os.R_OK | os.W_OK)
+    credential = base64.b64encode(unit_text(phase).encode()).decode()
+    cmd = [qemu, "-machine", "q35" + (",accel=kvm" if kvm else ""), "-cpu", "host" if kvm else "max",
+           "-m", str(memory), "-smp", str(cpus), "-no-reboot",
+           "-drive", f"if=pflash,format=raw,readonly=on,file={code}",
+           "-drive", f"if=pflash,format=raw,file={vars_file}",
+           "-drive", f"file={image},format=raw,if=virtio,snapshot=on,cache=unsafe",
+           "-drive", f"file={data},format=raw,if=virtio",
+           "-device", "virtio-rng-pci", "-display", "none", "-vga", "std", "-monitor", "none",
+           "-serial", f"file:{log_path}",
+           "-smbios", f"type=11,value=io.systemd.credential.binary:systemd.extra-unit.ecp-uefi-test.service={credential}",
+           "-smbios", "type=11,value=io.systemd.stub.kernel-cmdline-extra=systemd.wants=ecp-uefi-test.service"
+           # console=ttyS0 is needed: without it these boots never finished in testing (reason not found), with it they do
+           + " console=ttyS0" + (" loglevel=6 systemd.log_target=console systemd.log_level=info systemd.show_status=1" if debug else "")]
+    print(f"boot {phase}: {os.path.basename(image)} ({'KVM' if kvm else 'TCG, slow'}), timeout {timeout}s", flush=True)
+    start = time.monotonic()
+    process = subprocess.Popen(cmd, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
+    try:
+        _out, err = process.communicate(timeout=timeout)
+    except subprocess.TimeoutExpired:
+        process.kill()
+        _out, err = process.communicate()
+        print(f"TIMEOUT after {timeout}s", file=sys.stderr)
+    print(f"  finished in {time.monotonic() - start:.0f}s", flush=True)
+    return err.decode(errors="replace").strip()
+
+
+def parse(data_image, phase, log_path):
+    """The key=value lines the guest program wrote to the data disk (read with debugfs, no mounting), and the serial log."""
+    try:
+        with open(log_path, encoding="utf-8", errors="replace") as handle:
+            serial = handle.read().replace("\r", "")
+    except OSError:
+        serial = ""
+    done = subprocess.run(["debugfs", "-R", f"cat /result-{phase}.txt", data_image], capture_output=True, text=True)
+    text = done.stdout
+    begin, end = text.find("TEST-BEGIN"), text.find("TEST-END")
+    if begin < 0 or end < 0:
+        return None, ("--- what the guest program wrote:\n" + (text or "(no result file)")
+                      + "\n--- end of the serial console:\n" + "\n".join(serial.splitlines()[-25:]))
+    values = {}
+    for line in text[begin:end].splitlines()[1:]:
+        match = re.match(r"^([a-z_]+)=(.*)$", line)
+        if match:
+            values[match.group(1)] = match.group(2).strip()
+    return values, text
+
+
+CHECKS = {
+    "1": [
+        ("the machine started with UEFI", lambda v: v.get("uefi_boot") == "True"),
+        ("efivarfs is mounted", lambda v: v.get("efivarfs") == "efivarfs"),
+        ("the variable does not exist yet", lambda v: v.get("absent_at_start") == "True"),
+        ("a unit conditioned on it is skipped", lambda v: v.get("condition_runs_when_absent") == "False"),
+        ("set_theme(dark) reports the variable", lambda v: "UEFI variable ErsaSplashDark-" in v.get("changed", "")),
+        ("the variable exists", lambda v: v.get("exists_after_set") == "True"),
+        ("its attributes are 0x7 (non-volatile, boot, runtime)", lambda v: v.get("attributes") == "0x7"),
+        ("its value is 01", lambda v: v.get("value") == "01"),
+        ("efivarfs marked it immutable (the code has to clear that)", lambda v: v.get("immutable_flag") == "True"),
+        ("the conditioned unit now runs", lambda v: v.get("condition_runs_when_present") == "True"),
+    ],
+    "2": [
+        ("the variable survived the power cycle", lambda v: v.get("exists_after_reboot") == "True"),
+        ("the conditioned unit runs after the reboot", lambda v: v.get("condition_runs_after_reboot") == "True"),
+        ("the tmpfiles line succeeded", lambda v: v.get("tmpfiles_rc") == "0"),
+        ("it linked plymouthd.conf to the dark configuration",
+         lambda v: v.get("tmpfiles_is_link_to") == "/etc/plymouth/plymouthd-dark.conf"),
+        ("and the theme read through the link is dark", lambda v: v.get("tmpfiles_theme") == "dark"),
+        ("set_theme(light) removed the variable", lambda v: v.get("removed_after_light") == "True"),
+        ("the conditioned unit is skipped again", lambda v: v.get("condition_runs_after_light") == "False"),
+        ("the variable can be created again", lambda v: v.get("recreated") == "True"),
+        ("and removed again", lambda v: v.get("removed_again") == "True"),
+    ],
+}
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
+    parser.add_argument("image", nargs="?", help="a raw disk image (default: the newest mkosi.output/ecp_*.raw)")
+    parser.add_argument("--timeout", type=int, default=200, help="seconds to wait for each boot (default 200)")
+    parser.add_argument("--memory", type=int, default=4096)
+    parser.add_argument("--cpus", type=int, default=2)
+    parser.add_argument("--keep-logs", metavar="DIR", help="copy the serial logs of both boots here")
+    parser.add_argument("--debug", action="store_true", help="also send the guest's boot messages to the serial log")
+    parser.add_argument("--only", choices=("1", "2"), help="run only this boot (debugging)")
+    parser.add_argument("--attempts", type=int, default=4, help="tries per boot when the machine does not reach the test (default 4)")
+    args = parser.parse_args()
+
+    image = args.image
+    if not image:
+        candidates = [p for p in glob.glob(os.path.join(ROOT, "mkosi.output", "ecp_*.raw")) if ".root-" not in p]
+        if not candidates:
+            sys.exit("no image found; build one with scripts/build x86-64, or pass a path")
+        image = max(candidates, key=os.path.getmtime)
+    image = os.path.realpath(image)
+
+    failures = 0
+    with tempfile.TemporaryDirectory() as directory:
+        data = data_disk(directory)
+        vars_file = os.path.join(directory, "vars.fd")
+        shutil.copy(first_existing(OVMF_VARS, "OVMF variables template"), vars_file)      # shared by both boots: the NV store
+        for phase in ([args.only] if args.only else ("1", "2")):
+            log = os.path.join(directory, f"serial-{phase}.log")
+            values = None
+            for attempt in range(1, args.attempts + 1):
+                err = boot(image, data, vars_file, phase, args.timeout, args.memory, args.cpus, log, args.debug)
+                values, text = parse(data, phase, log)
+                if args.keep_logs:
+                    os.makedirs(args.keep_logs, exist_ok=True)
+                    shutil.copy(log, os.path.join(args.keep_logs, f"serial-{phase}-attempt{attempt}.log"))
+                if err:
+                    print(f"qemu said: {err[-300:]}", file=sys.stderr)
+                if values is not None:
+                    break
+                # Some boots of the image stop in the initrd (emergency mode after a 90 s wait for the root or data partition's
+                # device links, which udev did not create). That is a problem of the boot, not of what is tested here: try again.
+                print(f"  boot {phase} did not reach the test (attempt {attempt} of {args.attempts})"
+                      + ("; it stopped in emergency mode" if "emergency mode" in text else ""), flush=True)
+            if values is None:
+                print(f"\nFAIL: boot {phase} never reported. What the guest wrote and the end of the serial console:\n", file=sys.stderr)
+                print(text, file=sys.stderr)
+                return 1
+            print()
+            for title, check in CHECKS[phase]:
+                ok = bool(check(values))
+                failures += not ok
+                print(f"  {'PASS' if ok else 'FAIL'}  boot {phase}: {title}")
+            print()
+    print("ALL CHECKS PASSED" if not failures else f"{failures} CHECK(S) FAILED")
+    return 1 if failures else 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

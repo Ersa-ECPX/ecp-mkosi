@@ -29,6 +29,7 @@ space (default `/tmp/ecp-work`, which needs about 15 GiB free).
 | `build-installer-sysext` | build the installer as a labelled system extension |
 | `publish-update`, `serve-update`, `ota-test-definitions` | the update test scaffolding ([updates](updates.md)) |
 | `qemu-smoke` | a boot smoke test in QEMU |
+| `qemu-uefi-test` | the boot splash's UEFI variable on OVMF: write, reboot, find, remove (two boots; retries a boot that stops in the initrd) |
 | `test-bundles-container` | run the repository and bundle code against the live repositories in a container |
 | `build-wiki` | turn the documentation into one self-contained HTML wiki page (`docs/wiki/index.html`) with search and light/dark themes |
 | `clean` | remove outputs and scratch space |
@@ -70,6 +71,7 @@ These methods found most of the boot bugs, and need only QEMU and KVM:
 - mkosi cannot run in unprivileged environments without user namespaces, so image builds are done on a build machine.
 - There is no CI: the old workflow file is stale and does not build the current images.
 - Nothing has been tested on real hardware.
+- **An intermittent boot stop in QEMU.** About every second boot of the root image, with a second virtio disk attached, stops in the initrd: the kernel finds both disks, then nothing happens for about 90 seconds while systemd waits for `/dev/disk/by-label/ECP-DATA` and `/dev/disk/by-partlabel/ecp-root_*`, and then it drops into emergency mode. The cause is not known (udev not creating the device links in time is the guess). It resembles the slow `by-partuuid` start job seen on a VM. `qemu-uefi-test` retries around it.
 
 See also: [installer medium](live-medium.md), [developer guide](../../foundation/README.md#testing).
 
