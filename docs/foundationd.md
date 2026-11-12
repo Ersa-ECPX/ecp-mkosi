@@ -25,6 +25,7 @@ questions.
 | `Compat` | implemented: inspect, install RPM files, remove, list, revalidate; **bundles** (many repository packages as one extension: install, remove, update, catalog) |
 | `Repos` | implemented: list, search, info, enable, refresh; signed metadata, libsolv solving, verified downloads |
 | `Extensions` | implemented: list, merge, unmerge, refresh for sysext and confext |
+| `Remote` | implemented: SSH on/off with safe defaults, authorized keys; **not yet run on a booted image** |
 | `Deploy` | implemented: list disks, plan, install to a disk (used by `foundation deploy` and the graphical installer) |
 | `Updates` (OTA), `Diagnostics`, `CompleteProvisioning` front ends | **not implemented** |
 
@@ -106,6 +107,7 @@ Objects: `/org/ersa/Foundation1` (manager and domain interfaces) and
 | `Apps` | Flatpak applications | `ListInstalled()`, `Search()`, `Install()`, `Remove()`, `Update()` |
 | `Compat` | Legacy RPMs as sysexts | `Inspect()`, `Install()`, `Remove()`, `List()`, `Revalidate()` |
 | `Extensions` | sysext and confext management | `List()`, `Merge()`, `Unmerge()`, `Refresh()` |
+| `Remote` | SSH server and keys | `GetStatus()`, `ListKeys()`, `SetSsh()`, `AddKey()`, `RemoveKey()` |
 | `Updates` | OTA images and slots | `Check()`, `Download()`, `Apply()`, `GetSlots()`, `Rollback()` |
 | `Boot` | Boot slots and boot control | `GetBootState()`, `GetSlots()`, `SetDefaultSlot()`, `SetNextBoot()`, `CopySlot()`, `ReleaseSlot()`, `Reboot()`, `RebootToFirmware()` (`RebootToRecovery()` once a recovery entry exists) |
 | `Diagnostics` | Health checks and support data | `Doctor()`, `CollectBundle()` |
@@ -199,7 +201,7 @@ Purpose: run a legacy or third-party RPM without a writable `/usr`.
    library versions change. Extensions that no longer validate are not merged and are reported as
    needing attention.
 
-Limits: no scriptlets, no files outside `/usr` (anything for `/etc` would need a confext), and
+Limits: no scriptlets, and a package's `/etc` files become defaults copied into `/etc` where nothing exists and its `/var` directories become `tmpfiles.d` entries (see [system extensions](features/system-extensions.md)); and
 kernel modules built for another kernel do not work. **Unverified** end to end on our image.
 
 ### Sysext and confext management

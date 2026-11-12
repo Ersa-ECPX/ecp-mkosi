@@ -57,6 +57,10 @@
         },
         "docs/features/system-extensions.md",
         {
+          "path": "docs/features/remote-access.md",
+          "label": "Remote access (SSH)"
+        },
+        {
           "path": "docs/foundationd.md",
           "label": "Design notes: foundationd"
         },

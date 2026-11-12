@@ -43,8 +43,9 @@ The default bundle for plain package names is `extras`.
    package to one repository, and a package marked `when_installed` is only replaced if the base has it.
 2. **Download** only what is missing (six at once) into `/var/lib/foundation/bundles/<name>.rpms`, checking each file's
    checksum and signature.
-3. **Build** a new tree beside the old one: unpack every RPM with a strict reader (no scriptlets, nothing outside `/usr`
-   and `/opt`, no path escapes), write the `extension-release` file, **label every file for SELinux** for the path it
+3. **Build** a new tree beside the old one: unpack every RPM with a strict reader (no scriptlets run, with what they would have done reported;
+   `/etc` files kept as defaults copied into `/etc` where nothing exists, `/var` directories turned into `tmpfiles.d` lines, nothing else outside `/usr` and `/opt`; no path escapes;
+   see [system extensions](system-extensions.md)), write the `extension-release` file, **label every file for SELinux** for the path it
    will have once merged.
 4. **Swap and merge** (`systemd-sysext refresh`). If the merge fails, the previous bundle is restored.
 

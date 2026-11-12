@@ -35,8 +35,10 @@ tag="v$version"
 if gh release view "$tag" -R "$repo" >/dev/null 2>&1; then echo "the release $tag already exists in $repo" >&2; exit 1; fi
 
 if (( build )); then
-  scripts/build x86-64 --profile installer --image-version "$version"
+  # The root image first: its build downloads selinux-policy-targeted into mkosi's cache, and the installer's
+  # sysext (scripts/build-installer-sysext) takes the SELinux file labels from that package.
   scripts/build x86-64 --profile root --image-version "$version"
+  scripts/build x86-64 --profile installer --image-version "$version"
   scripts/make-update-archive "$version" >/dev/null
 fi
 
