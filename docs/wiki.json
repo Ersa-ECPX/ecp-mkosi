@@ -35,6 +35,14 @@
         {
           "path": "docs/ota-hosting.md",
           "label": "Hosting updates"
+        },
+        {
+          "path": "docs/features/secure-boot.md",
+          "label": "Secure Boot"
+        },
+        {
+          "path": "docs/features/dm-verity.md",
+          "label": "dm-verity (root integrity)"
         }
       ]
     },

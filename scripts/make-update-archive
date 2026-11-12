@@ -7,10 +7,10 @@
 
 Reads  mkosi.output/root/ecp_<version>.root-x86-64.raw.zst  (the root filesystem, EROFS)  and
        mkosi.output/root/ecp_<version>.efi                  (the unified kernel image)
-and, for a dm-verity build (docs/features/dm-verity.md), also
-       mkosi.output/root/ecp_<version>.root-verity-x86-64.raw.zst  (the hash tree)  and  ecp_<version>.roothash
+       mkosi.output/root/ecp_<version>.root-verity-x86-64.raw.zst  (its dm-verity hash tree)
+       mkosi.output/root/ecp_<version>.roothash                    (the root hash, which the kernel image also names)
 Writes dist/update/ecp_<version>-x86_64.tar.zst holding exactly: manifest.json (first), manifest.json.sig (with
---sign), root.erofs, uki.efi, and verity.img for a dm-verity build (then the manifest is format 2 with the root hash). The manifest is what is signed and names the size and SHA-256 of the two big files.
+--sign), root.erofs, verity.img, uki.efi. The manifest names the root hash and the size and SHA-256 of the three files. The manifest is what is signed and names the size and SHA-256 of the two big files.
 The signing key must live outside this repository, in your GPG keyring (scripts/make-image-signing-key makes one;
 ECP_SIGN_PASSPHRASE_FILE names a file holding its passphrase, for unattended signing); the system trusts a key only if its public
 half is installed as /usr/share/foundation/keys/ersa-image-*.asc or /etc/foundation/keys/ersa-image-*.asc.
@@ -54,9 +54,9 @@ def main():
             sys.exit(f"missing {path}; build it with: scripts/build {args.arch} --profile root")
     verity_zst = os.path.join(args.source, f"ecp_{args.version}.root-verity-{args.arch}.raw.zst")
     roothash_file = os.path.join(args.source, f"ecp_{args.version}.roothash")
-    has_verity = os.path.isfile(verity_zst) or os.path.isfile(roothash_file)
-    if has_verity and not (os.path.isfile(verity_zst) and os.path.isfile(roothash_file)):
-        sys.exit(f"a dm-verity build needs both {verity_zst} and {roothash_file}")
+    for path in (verity_zst, roothash_file):
+        if not os.path.isfile(path):
+            sys.exit(f"missing {path}: every image is built with dm-verity; build it with: scripts/build {args.arch} --profile root")
     key = os.environ.get("ECP_SIGN_KEY", "")
     if args.sign and not key:
         sys.exit("--sign needs ECP_SIGN_KEY (a GPG key id)")
@@ -67,19 +67,15 @@ def main():
         erofs = os.path.join(work, "root.erofs")
         with open(erofs, "wb") as handle:
             subprocess.run(["zstd", "-dc", "--", root_zst], stdout=handle, check=True)
-        manifest = {"format": 1, "name": "ecp", "version": args.version, "arch": ARCH[args.arch],
+        tree = os.path.join(work, "verity.img")
+        with open(tree, "wb") as handle:
+            subprocess.run(["zstd", "-dc", "--", verity_zst], stdout=handle, check=True)
+        with open(roothash_file, encoding="ascii") as handle:
+            roothash = handle.read().strip().lower()
+        manifest = {"format": 1, "name": "ecp", "version": args.version, "arch": ARCH[args.arch], "roothash": roothash,
                     "root": {"file": "root.erofs", "sha256": digest(erofs), "size": os.path.getsize(erofs)},
+                    "verity": {"file": "verity.img", "sha256": digest(tree), "size": os.path.getsize(tree)},
                     "uki": {"file": "uki.efi", "sha256": digest(uki), "size": os.path.getsize(uki)}}
-        tree = None
-        if has_verity:
-            tree = os.path.join(work, "verity.img")
-            with open(tree, "wb") as handle:
-                subprocess.run(["zstd", "-dc", "--", verity_zst], stdout=handle, check=True)
-            with open(roothash_file, encoding="ascii") as handle:
-                roothash = handle.read().strip().lower()
-            manifest["format"] = 2
-            manifest["roothash"] = roothash
-            manifest["verity"] = {"file": "verity.img", "sha256": digest(tree), "size": os.path.getsize(tree)}
         manifest_path = os.path.join(work, "manifest.json")
         with open(manifest_path, "w", encoding="utf-8") as handle:
             json.dump(manifest, handle, indent=1)
@@ -92,7 +88,7 @@ def main():
                 command += ["--pinentry-mode", "loopback", "--passphrase-file", os.environ["ECP_SIGN_PASSPHRASE_FILE"]]
             subprocess.run(command + [manifest_path], check=True)
             members.append(("manifest.json.sig", signature))
-        members += [("root.erofs", erofs), ("uki.efi", uki)] + ([("verity.img", tree)] if tree else [])
+        members += [("root.erofs", erofs), ("verity.img", tree), ("uki.efi", uki)]
         with open(out, "wb") as target:
             compressor = subprocess.Popen(["zstd", "-T0", "-10", "-q"], stdin=subprocess.PIPE, stdout=target)
             with tarfile.open(fileobj=compressor.stdin, mode="w|") as tar:
