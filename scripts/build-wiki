@@ -8,7 +8,7 @@
 The page has a sidebar, full-text search, light and dark themes and no external fonts or scripts, so it works from a
 file:// URL, a USB stick or any static host. Images that the Markdown refers to are copied to an assets/ folder beside
 the page. The output folder is ready to publish: it also gets an empty `.nojekyll` (GitHub Pages must not process it),
-and a `CNAME` file when --cname is given (for example `--cname compute.ersa.dev`). It is generated: edit the Markdown
+and a `CNAME` file when --cname is given (for a wiki published as a site of its own; the platform wiki is part of pkgs-compute.ersa.dev/wiki/ instead). It is generated: edit the Markdown
 under docs/ (and foundation/README.md) and run this again.
 
 What is included, and how it is grouped, is described by docs/wiki.json: a list of categories (Architecture,

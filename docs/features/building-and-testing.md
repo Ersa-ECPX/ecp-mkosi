@@ -75,9 +75,11 @@ See also: [installer medium](live-medium.md), [developer guide](../../foundation
 
 ## Publishing the wiki (GitHub Pages)
 
-`scripts/build-wiki docs/wiki/index.html --cname compute.ersa.dev` writes a folder holding `index.html`, `assets/`
-(the screenshots), `.nojekyll` and `CNAME`. Publish the contents of `docs/wiki/` as the root of a Pages site (a
-`gh-pages` branch or a Pages workflow) and point the domain's DNS at GitHub Pages. Nothing in the page needs a server.
+The wiki is published at **https://pkgs-compute.ersa.dev/wiki/**, as part of the packages site: the workflow in the `packages`
+repository clones this repository (and `foundation`, for its README) when a release is published and runs
+`scripts/build-wiki`. To look at it yourself, `scripts/build-wiki docs/wiki/index.html` writes `index.html`, `assets/` (the
+screenshots) and `.nojekyll`, and nothing in the page needs a server. `--cname DOMAIN` adds a `CNAME` for publishing it as a site of
+its own.
 
 Screenshots in `docs/images/` are real: installer windows are captured from the application in a headless session,
 and terminal images are output captured from a booted installer image in QEMU, rendered as pictures.
