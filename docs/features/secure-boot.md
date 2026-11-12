@@ -3,18 +3,21 @@
 The platform can sign systemd-boot and every kernel image (UKI) with its own key, so a computer that trusts that key boots
 them and refuses anything else.
 
-## Build signed images
+## Every image is signed
+
+`mkosi.conf` sets `SecureBoot=yes`: systemd-boot and every kernel image (UKI) are signed with the platform's key in
+`secure-boot/ersa-secure-boot.{key,crt}` (git ignores the folder; back it up). A computer that does not use Secure Boot
+ignores the signatures, so the same image works everywhere; one that does use it can trust our certificate (below).
 
 ```
-scripts/make-secure-boot-key                       # once: secure-boot/ersa-secure-boot.{key,crt,cer} (git ignores the folder; back it up)
-scripts/build x86-64 --profile root --profile secureboot
-scripts/build x86-64 --profile installer --profile secureboot
+scripts/make-secure-boot-key       # the real key, once. `scripts/build` makes a DEVELOPMENT key by itself if none exists
+scripts/build x86-64 --profile root
+scripts/release 0.2.0              # refuses to build without the real key (ECP_REQUIRE_SB_KEY=1)
 ```
 
-The `secureboot` profile (`mkosi.profiles/secureboot/mkosi.conf`) sets `SecureBoot=yes` with that key and certificate and
-`SecureBootAutoEnroll=yes`. This is a different key from the update signing key (`scripts/make-image-signing-key`) and the
-package repository key. **The profile itself has not been built yet** (mkosi cannot run in the sessions that wrote it); the
-test below signs an existing image's boot files instead.
+This is a different key from the update signing key (`scripts/make-image-signing-key`) and the package repository key.
+**mkosi's signing has not been run yet** (mkosi cannot run in the sessions that wrote it); the test below signs an existing
+image's boot files instead.
 
 ## Trusting the key
 

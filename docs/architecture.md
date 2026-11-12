@@ -151,7 +151,7 @@ Not yet present: `Updates`, `Deploy` (installer), `Diagnostics`.
 | SELinux (targeted policy, relabelled at build) | configured; behaviour of `foundationd` and compat files under enforcing **untested** |
 | polkit on every state-changing call, files passed as descriptors, strict RPM unpacking | built and tested |
 | Signed update artifacts | built and tested (GPG, `foundation update install` refuses unsigned or tampered; docs/features/updates.md) |
-| Signed UKI, Secure Boot | `secureboot` mkosi profile written, **not built**; firmware chain tested in QEMU (docs/features/secure-boot.md); signed images cannot be installed by update yet (the update rewrites the kernel command line) |
+| Signed UKI, Secure Boot | `SecureBoot=yes` in mkosi.conf (every image signed), **not built yet**; firmware chain tested in QEMU (docs/features/secure-boot.md); signed images cannot be installed by update yet (the update rewrites the kernel command line) |
 | dm-verity sealed root (macOS-style) | **not built** |
 | TPM measurement, disk encryption | not built |
 

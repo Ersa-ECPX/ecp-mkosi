@@ -37,6 +37,7 @@ tag="v$version"
 if gh release view "$tag" -R "$repo" >/dev/null 2>&1; then echo "the release $tag already exists in $repo" >&2; exit 1; fi
 
 if (( build )); then
+  export ECP_REQUIRE_SB_KEY=1          # a release is signed with the real Secure Boot key, never a development one
   # The root image first: its build downloads selinux-policy-targeted into mkosi's cache, and the installer's
   # sysext (scripts/build-installer-sysext) takes the SELinux file labels from that package.
   scripts/build x86-64 --profile root --image-version "$version"
