@@ -137,7 +137,7 @@ def main():
     parser.add_argument("--negative-timeout", type=int, default=45, help="seconds a refused boot is watched (default 45)")
     parser.add_argument("--keep-logs", metavar="DIR")
     args = parser.parse_args()
-    image = args.image or (sorted(glob.glob(os.path.join(ROOT, "mkosi.output", "ecp_*.raw")) or [None])[-1])
+    image = args.image or (sorted([p for p in glob.glob(os.path.join(ROOT, "mkosi.output", "ecp_*.raw")) if ".root-" not in p] or [None])[-1])
     if not image or not os.path.exists(image):
         sys.exit("no image: build one, or pass --image")
     uki = args.uki or image[:-len(".raw")] + ".efi"

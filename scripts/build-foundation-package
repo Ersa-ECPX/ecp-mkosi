@@ -20,7 +20,7 @@ tar --exclude='__pycache__' --exclude='*.pyc' \
 rpm --initdb --dbpath "$build_dir/rpmdb"
 # --nodeps: the spec's BuildRequires name openSUSE packages (for the container build in the packages repository); this
 # host build runs the same %check with the host's own python, so rpm's dependency check is skipped.
-rpmbuild --nodeps --define "_topdir $build_dir" \
+rpmbuild --nodeps ${ECP_NOCHECK:+--nocheck} --define "_topdir $build_dir" \
   --define "_dbpath $build_dir/rpmdb" \
   --define "_tmppath $build_dir/tmp" \
   --define "_sourcedir $build_dir/SOURCES" \

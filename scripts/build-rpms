@@ -50,7 +50,7 @@ for pkg in "${packages[@]}"; do
   echo "Exported $pkg at $commit" >&2
 done
 
-podman run --rm --security-opt label=disable \
+podman run --rm ${ECP_NOCHECK:+-e ECP_NOCHECK} --security-opt label=disable \
   --volume "$work:/build:rw" --volume "$PWD/packages:/specs:ro" \
   "$image" bash -euc '
     zypper --non-interactive --gpg-auto-import-keys refresh
@@ -60,7 +60,7 @@ podman run --rm --security-opt label=disable \
       # Install the spec build dependencies (capability names; version constraints are dropped).
       rpmspec -q --buildrequires "$spec" | awk "{print \$1}" | sort -u \
         | xargs zypper --non-interactive install --no-recommends
-      rpmbuild -bb --define "_topdir /build" --define "_sourcedir /build/SOURCES" "$spec"
+      rpmbuild -bb ${ECP_NOCHECK:+--nocheck} --define "_topdir /build" --define "_sourcedir /build/SOURCES" "$spec"
     done
   ' _ "${packages[@]}"
 
