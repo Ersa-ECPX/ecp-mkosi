@@ -34,6 +34,21 @@ To try the window instead of the command line: in the guest run `foundation conf
 without the signature check being skipped; an unsigned one can only be installed from the menu ("Install from a File..."), where the
 check can be switched off.
 
+### Signing it with the development key
+
+The image-update key lives in `~/Dev/signing-keys/image-update/` (its public half is in `foundation/data/keys/`, so images built after
+that commit trust it). Sign the archive with:
+
+```sh
+GNUPGHOME=~/Dev/signing-keys/image-update/gnupg ECP_SIGN_PASSPHRASE_FILE=~/Dev/signing-keys/image-update/passphrase.txt \
+  ECP_SIGN_KEY=3E08941D813471EA2EA509A2245AECF0314C00D5 scripts/make-update-archive 0.1.1 --sign
+```
+
+An installation built **before** that commit does not know the key. Give it the public key once (this machine's `/etc` is writable):
+copy `~/Dev/signing-keys/public/ersa-image-245AECF0314C00D5.asc` into `dist/update/`, then in the guest
+`curl -O http://10.0.2.2:8000/ersa-image-245AECF0314C00D5.asc`, check `gpg --show-keys ersa-image-245AECF0314C00D5.asc` prints the
+fingerprint above, and `sudo install -Dm644 ersa-image-245AECF0314C00D5.asc /etc/foundation/keys/`. Then install without `--unsigned`.
+
 ## 3. Install it (guest)
 
 ```sh
