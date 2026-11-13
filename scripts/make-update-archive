@@ -5,10 +5,11 @@
     scripts/make-update-archive 0.2.0                       # unsigned: only for an image you built yourself
     ECP_SIGN_KEY=<key id> scripts/make-update-archive 0.2.0 --sign
 
-Reads  mkosi.output/root/ecp_<version>.root-x86-64.raw.zst  (the root filesystem, EROFS)  and
-       mkosi.output/root/ecp_<version>.efi                  (the unified kernel image)
-       mkosi.output/root/ecp_<version>.root-verity-x86-64.raw.zst  (its dm-verity hash tree)
-       mkosi.output/root/ecp_<version>.roothash                    (the root hash, which the kernel image also names)
+Reads  mkosi.output/root/ecp_<version>.root-x86-64.raw[.zst]         (the root filesystem, EROFS)
+       mkosi.output/root/ecp_<version>.root-x86-64-verity.raw[.zst]  (its dm-verity hash tree: mkosi's own name for it)
+       mkosi.output/root/ecp_<version>.efi                           (the unified kernel image)
+       mkosi.output/root/ecp_<version>.roothash                      (the root hash; if absent it is read from the kernel image,
+                                                                      which carries it as roothash= on its command line)
 Writes dist/update/latest-x86_64.json (the feed the updater window reads: version, file, size, sha256) and
        dist/update/ecp_<version>-x86_64.tar.zst holding exactly: manifest.json (first), manifest.json.sig (with
 --sign), uki.efi, root.erofs, verity.img (the small kernel image comes first so the installer can read it before the images). The manifest names the root hash and the size and SHA-256 of the three files. The manifest is what is signed and names the size and SHA-256 of the two big files.
@@ -39,6 +40,41 @@ def digest(path):
     return h.hexdigest()
 
 
+def find(directory, stem):
+    """`stem` as mkosi wrote it: compressed (.zst) or not."""
+    for name in (stem + ".zst", stem):
+        path = os.path.join(directory, name)
+        if os.path.isfile(path):
+            return path
+    return None
+
+
+def unpack(path, handle):
+    """Write the contents of `path` (zstd-compressed or plain) to the open file `handle`."""
+    if path.endswith(".zst"):
+        subprocess.run(["zstd", "-dc", "--", path], stdout=handle, check=True)
+    else:
+        with open(path, "rb") as source:
+            while chunk := source.read(1 << 20):
+                handle.write(chunk)
+
+
+def read_roothash(roothash_file, uki):
+    """The root hash from mkosi's .roothash file, checked against (or, if there is no file, taken from) the kernel image."""
+    sys.path.insert(0, os.path.join(ROOT, "foundation"))
+    from foundationd.backends import verity
+    named = verity.roothash_of(verity.cmdline_of_file(uki))
+    if os.path.isfile(roothash_file):
+        with open(roothash_file, encoding="ascii") as handle:
+            roothash = handle.read().strip().lower()
+        if named and named != roothash:
+            sys.exit(f"{roothash_file} says {roothash} but the kernel image names {named}; the build output is inconsistent")
+        return roothash
+    if not named:
+        sys.exit(f"no root hash: {roothash_file} is missing and the kernel image has no roothash= on its command line")
+    return named
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("version")
@@ -48,16 +84,13 @@ def main():
     parser.add_argument("--sign", action="store_true", help="sign manifest.json with the GPG key in $ECP_SIGN_KEY")
     args = parser.parse_args()
 
-    root_zst = os.path.join(args.source, f"ecp_{args.version}.root-{args.arch}.raw.zst")
     uki = os.path.join(args.source, f"ecp_{args.version}.efi")
-    for path in (root_zst, uki):
-        if not os.path.isfile(path):
-            sys.exit(f"missing {path}; build it with: scripts/build {args.arch} --profile root")
-    verity_zst = os.path.join(args.source, f"ecp_{args.version}.root-verity-{args.arch}.raw.zst")
+    root_zst = find(args.source, f"ecp_{args.version}.root-{args.arch}.raw")
+    verity_zst = find(args.source, f"ecp_{args.version}.root-{args.arch}-verity.raw")
+    for what, path in (("the root image", root_zst), ("the dm-verity hash tree", verity_zst), ("the kernel image", uki if os.path.isfile(uki) else None)):
+        if path is None:
+            sys.exit(f"missing {what} for {args.version} in {args.source}; build it with: scripts/build {args.arch} --profile root --image-version {args.version}")
     roothash_file = os.path.join(args.source, f"ecp_{args.version}.roothash")
-    for path in (verity_zst, roothash_file):
-        if not os.path.isfile(path):
-            sys.exit(f"missing {path}: every image is built with dm-verity; build it with: scripts/build {args.arch} --profile root")
     key = os.environ.get("ECP_SIGN_KEY", "")
     if args.sign and not key:
         sys.exit("--sign needs ECP_SIGN_KEY (a GPG key id)")
@@ -67,12 +100,11 @@ def main():
     with tempfile.TemporaryDirectory(dir=args.output, prefix="work.") as work:
         erofs = os.path.join(work, "root.erofs")
         with open(erofs, "wb") as handle:
-            subprocess.run(["zstd", "-dc", "--", root_zst], stdout=handle, check=True)
+            unpack(root_zst, handle)
         tree = os.path.join(work, "verity.img")
         with open(tree, "wb") as handle:
-            subprocess.run(["zstd", "-dc", "--", verity_zst], stdout=handle, check=True)
-        with open(roothash_file, encoding="ascii") as handle:
-            roothash = handle.read().strip().lower()
+            unpack(verity_zst, handle)
+        roothash = read_roothash(roothash_file, uki)
         manifest = {"format": 1, "name": "ecp", "version": args.version, "arch": ARCH[args.arch], "roothash": roothash,
                     "root": {"file": "root.erofs", "sha256": digest(erofs), "size": os.path.getsize(erofs)},
                     "verity": {"file": "verity.img", "sha256": digest(tree), "size": os.path.getsize(tree)},
