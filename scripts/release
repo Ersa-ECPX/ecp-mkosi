@@ -10,7 +10,8 @@
 #   ecp-installer_<v>-x86_64.raw.zst[.partNN]   the installer medium (write it to a USB drive or boot it in QEMU)
 #   ecp_<v>-x86_64.tar.zst                      the update `foundation update install` takes
 #   SHA256SUMS
-# GitHub allows 2 GiB per release file, so a compressed image larger than that is split into .partNN files:
+# GitHub allows 2 GiB per release file, so the installer is split into .partNN files when it is larger than the part limit (the update
+# archive is never split):
 #   cat ecp-installer_<v>-x86_64.raw.zst.part* | zstd -d > ecp-installer_<v>.raw
 #
 # It needs mkosi (see scripts/build), zstd and an authenticated `gh`. The sources it compiles are cloned by
@@ -65,7 +66,13 @@ cp --reflink=auto "$update" "$out/"
 # SHA256SUMS next to those of the parts, so the merged file can be checked too.
 limit=$(( ${ECP_RELEASE_PART_MB:-1900} * 1024 * 1024 ))
 wholes="$out/.whole-sums"; : > "$wholes"
-for f in "$out"/*.zst; do
+# Only the installer is split. The update archive stays ONE file: the update window downloads it from a single address, and
+# `foundation update install` takes one file. GitHub cannot host a file over 2 GiB, so a larger update is an error, not a split.
+if (( $(stat -c %s "$out/ecp_${version}-x86_64.tar.zst") > 2000 * 1024 * 1024 )); then
+  echo "the update archive is larger than GitHub's 2 GiB limit per file; it needs another place to be hosted (docs/ota-hosting.md)" >&2
+  exit 1
+fi
+for f in "$out"/ecp-installer_*.zst; do
   if (( $(stat -c %s "$f") > limit )); then
     echo "$(basename "$f") is larger than $(( limit / 1024 / 1024 )) MiB; splitting it" >&2
     ( cd "$out" && sha256sum --binary "$(basename "$f")" >> .whole-sums )
@@ -90,6 +97,17 @@ notes="Early preview of the Ersa Compute Platform ${version}. Tested in virtual 
 - ecp_${version}-x86_64.tar.zst: an update for an installed system: \`foundation update install FILE\`${how}.
 - Files larger than 2 GiB are split: \`cat FILE.partNN... | zstd -d > image.raw\`.
 Check downloads against SHA256SUMS (the merged file has a line there too: \`sha256sum -c SHA256SUMS --ignore-missing\`)${sign[@]:+, and SHA256SUMS against its signature SHA256SUMS.asc: \`gpg --verify SHA256SUMS.asc SHA256SUMS\`, with the Ersa image update key (fingerprint 3E08941D813471EA2EA509A2245AECF0314C00D5)}."
+# The release is created empty and the files are uploaded one by one, each retried: a 1.7 GB request on a slow connection can be
+# closed by GitHub for inactivity ("HTTP 408"), and one failed file must not lose the others.
 gh release create "$tag" -R "$repo" --target main --prerelease "${draft[@]}" \
-  --title "Ersa Compute Platform ${version} (early preview)" --notes "$notes" "$out"/*
+  --title "Ersa Compute Platform ${version} (early preview)" --notes "$notes"
+for f in "$out"/*; do
+  for attempt in 1 2 3 4 5 6; do
+    if gh release upload "$tag" "$f" -R "$repo" --clobber; then continue 2; fi
+    echo "uploading $(basename "$f") failed (attempt $attempt of 6); trying again" >&2
+    sleep 10
+  done
+  echo "could not upload $(basename "$f"); the release $tag exists as it is. Upload the file with: gh release upload $tag $f -R $repo --clobber" >&2
+  exit 1
+done
 echo "released $tag: https://github.com/$repo/releases/tag/$tag" >&2
