@@ -171,7 +171,7 @@ scripts/build x86-64 --profile installer    # the installer image: mkosi.output/
 | --- | --- | --- |
 | ESP | 1 GiB | 512 MiB |
 | Recovery | 1 GiB (reserved) | none |
-| Root | two 8 GiB slots (A/B) | one 5 GiB slot (nothing on the stick is updated) |
+| Root | two 8 GiB slots (A/B) | one slot sized to its contents (about 6 GiB, mostly the payload; nothing on the stick is updated) |
 | Data (btrfs, `/var` and `/home`) | 10 GiB or more 512 MiB, holds the live session's `/var` and `/home` and the installer sysext |
 
 mkosi merges `mkosi.repart/` with anything a profile adds, so the default layout lives in `mkosi.repart.system/` and is selected by `mkosi.conf.d/20-repart.conf` unless the installer profile is active. The installer app and `foundation deploy` are built (see [docs/installer.md](docs/installer.md)); the installer medium keeps a small writable data volume for the live session. The 5 GiB root fails the build, rather than truncating, if the OS image ever outgrows it.
