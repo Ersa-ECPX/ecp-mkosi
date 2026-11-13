@@ -261,7 +261,7 @@ Every key is registered in a schema shipped in the image (`/usr/lib/foundation/s
 type, default, description and mutability, so unknown keys and bad values are rejected. Examples:
 
 ```
-ota.url=https://updates.ersa.invalid/ecp     # vendor default; placeholder today
+ota.url=https://github.com/Ersa-ECPX/ecp-mkosi/releases/download/updates     # vendor default: the GitHub release "updates" (scripts/publish-feed)
 ota.channel=stable
 ota.auto_check=true
 ota.auto_download=false

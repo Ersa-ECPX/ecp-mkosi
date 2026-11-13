@@ -25,7 +25,7 @@ What each does today (the others are stored but nothing reads them yet):
 
 | Key | Default | Effect now |
 | --- | --- | --- |
-| `ota.url` | `https://updates.ersa.invalid/ecp` (a placeholder) | the update window's "Check for Updates" reads `<ota.url>/latest-<arch>.json` |
+| `ota.url` | `https://github.com/Ersa-ECPX/ecp-mkosi/releases/download/updates` | the update window's "Check for Updates" reads `<ota.url>/latest-<arch>.json` |
 | `ota.channel` | `stable` | none yet |
 | `ota.auto_check` | true | none yet (there is no background check) |
 | `ota.auto_download` | false | none yet |

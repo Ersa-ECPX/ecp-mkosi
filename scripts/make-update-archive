@@ -81,6 +81,7 @@ def main():
     parser.add_argument("--arch", default="x86-64", choices=sorted(ARCH))
     parser.add_argument("--source", default=os.path.join(ROOT, "mkosi.output", "root"))
     parser.add_argument("--output", default=os.path.join(ROOT, "dist", "update"))
+    parser.add_argument("--base-url", help="write the update feed's file as BASE_URL/<archive name> (an absolute address) instead of a name relative to the feed")
     parser.add_argument("--sign", action="store_true", help="sign manifest.json with the GPG key in $ECP_SIGN_KEY")
     args = parser.parse_args()
 
@@ -139,7 +140,7 @@ def main():
     # signed manifest is what foundationd verifies
     feed = os.path.join(args.output, f"latest-{ARCH[args.arch]}.json")
     with open(feed, "w", encoding="utf-8") as handle:
-        json.dump({"version": args.version, "arch": ARCH[args.arch], "file": os.path.basename(out),
+        json.dump({"version": args.version, "arch": ARCH[args.arch], "file": (args.base_url.rstrip("/") + "/" if args.base_url else "") + os.path.basename(out),
                    "size": os.path.getsize(out), "sha256": digest(out)}, handle, indent=2)
         handle.write("\n")
     print(out)

@@ -1,5 +1,19 @@
 # Where to host updates
 
+**Today: GitHub Releases.** The default `ota.url` is `https://github.com/Ersa-ECPX/ecp-mkosi/releases/download/updates`. The feed `latest-x86_64.json` is a file on a fixed
+release named `updates`; the archive it names is the update of the versioned release `v<version>`. After publishing a release (not a
+draft), publish the feed for it:
+
+```sh
+scripts/release 0.1.2 --no-build --sign --draft     # then publish the draft on GitHub
+scripts/publish-feed 0.1.2                          # creates the release "updates" the first time; --dry-run shows the feed
+```
+
+Until the first `publish-feed`, the address answers 404 and the update window says it cannot reach the update source. The feed is
+not signed (the archive is). Anyone who can edit the release `updates` can point machines at a different archive, which the signature
+check then rejects. They can also offer an older signed version: `foundationd` does not refuse downgrades yet.
+The rest of this page compares other places to host.
+
 What `foundation update install` needs from a server: plain HTTPS file downloads at a stable URL, one update archive per version
 (`ecp_<version>-x86_64.tar.zst`, built by `scripts/make-update-archive`; the manifest and its signature are inside the
 archive). Not a web page, not a download wizard. There is no index and no automatic check yet: a client is given the URL.
