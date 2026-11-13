@@ -43,7 +43,7 @@ Not yet replaced: other openSUSE logo files, and `/etc/os-release` compatibility
 ## Fonts
 
 Inter is the interface font on the whole system (`mkosi.extra/usr/share/glib-2.0/schemas/20_ersa-fonts.gschema.override` sets the
-GNOME interface, document and title bar fonts; the package is `inter-fonts`). Monospace stays GNOME's default. GNOME's own default,
+GNOME interface, document and title bar fonts; the package is `inter-fonts`). Monospace is IBM Plex Mono (`ibm-plex-mono-fonts`; JetBrains Mono is not in Tumbleweed's main repository), with Adwaita Mono kept as a fallback. GNOME's own default,
 Adwaita Sans, is a close relative of Inter. Applications that name a font themselves, and scripts Inter does not cover, still use the
 Noto fonts through fontconfig. Not yet seen on a booted image.
 

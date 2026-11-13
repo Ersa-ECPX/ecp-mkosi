@@ -1,7 +1,9 @@
-# Inter is the interface font everywhere (windows, the shell, the login screen, documents). Monospace stays as GNOME's default.
+# Inter is the interface font everywhere (windows, the shell, the login screen, documents); IBM Plex Mono is the monospace font
+# (terminal, code, the text editor).
 [org.gnome.desktop.interface]
 font-name='Inter 11'
 document-font-name='Inter 11'
+monospace-font-name='IBM Plex Mono 11'
 
 [org.gnome.desktop.wm.preferences]
 titlebar-font='Inter Bold 11'
