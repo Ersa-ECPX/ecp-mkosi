@@ -48,7 +48,7 @@ The running slot is untouched. The new kernel image is installed last, so it nev
 1. `foundation reboot`. systemd-boot should pick `0.1.1` (3 tries). The "Update ready" notification should have appeared.
 2. `foundation status`: running `0.1.1`, assessment pending, then good (blessed). `foundation update status`: nothing waiting.
 3. `foundation compat bundles`: the bundle is `current` and merged, with no network needed.
-4. Roll back: `foundation slot boot 0.1.0 --once --yes`, reboot: you are on the old version and the old bundle is back
+4. Roll back: `foundation slot boot a --once --yes` (slot names are a and b; `foundation slot status` shows which holds the old version), reboot: you are on the old version and the old bundle is back
    (`journalctl -b -u foundation-bundles-select`).
 
 ## 5. Failures that must be safe

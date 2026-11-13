@@ -28,8 +28,8 @@ the previous slot by itself.
 ```
 foundation status                        # boot slot, assessment and storage at a glance
 foundation slot status                   # which slot is running, the boot assessment, every slot
-foundation slot boot 0.1.0 [--once]      # choose what boots (once, or from now on)
-foundation slot release 0.1.0            # empty a standby slot (its kernel image and names) so an update can use it
+foundation slot boot b [--once]          # choose what boots (once, or from now on)
+foundation slot release b                # empty a standby slot (its kernel image and names) so an update can use it
 foundation reboot [--firmware]
 ```
 
@@ -39,7 +39,7 @@ table says `blessed` or `N left`.
 ## How it works
 
 - A slot is a pair of GPT partitions: a root partition (label `ecp-root-a` or `ecp-root-b`) and its hash partition
-  (`ecp-verity-a`/`-b`). The labels never change. What a slot holds is named by its root hash: the root partition's UUID is
+  (`ecp-verity-a`/`-b`). The labels never change, and neither do the slot names `a` and `b`; the version a slot holds is shown next to the name. What a slot holds is identified by its root hash: the root partition's UUID is
   the first half of the hash and the hash partition's the second half, and the kernel image `ecp_<version>[+tries].efi` whose
   command line has that `roothash=` is the one that boots it. A slot whose UUID no kernel image names is empty.
   `foundationd` reads the partition table, the ESP and the EFI loader variables directly (`backends/slots.py`).

@@ -125,8 +125,8 @@ Zen Browser is not in the Tumbleweed repository (its Firefox is `MozillaFirefox`
 ```sh
 foundation status                       # system, running boot slot, storage, services
 foundation slot status                  # which slot you are on, boot assessment, every slot
-foundation slot boot 0.2.0 --once        # try another slot at the next boot only
-foundation slot release 0.1.0            # empty a standby slot so an update can use it
+foundation slot boot b --once            # try another slot at the next boot only
+foundation slot release b                 # empty a standby slot so an update can use it
 foundation apps install app.zen_browser.zen
 foundation compat install legacy.rpm    # run an RPM as a system extension, base untouched
 foundation ext list                     # sysext and confext images
