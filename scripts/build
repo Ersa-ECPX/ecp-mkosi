@@ -26,6 +26,12 @@ if [[ ! -f secure-boot/ersa-secure-boot.key ]]; then
   if [[ "${ECP_REQUIRE_SB_KEY:-}" == 1 ]]; then echo "secure-boot/ersa-secure-boot.key is missing: run scripts/make-secure-boot-key (or restore your key)" >&2; exit 1; fi
   echo "no Secure Boot key: making a DEVELOPMENT key in secure-boot/ (scripts/make-secure-boot-key makes the same; keep the real one for releases)" >&2
   scripts/make-secure-boot-key >&2
+  touch secure-boot/DEVELOPMENT-KEY      # scripts/release refuses to publish images signed with this key
+fi
+if [[ "${ECP_REQUIRE_SB_KEY:-}" == 1 && -e secure-boot/DEVELOPMENT-KEY ]]; then
+  echo "secure-boot/ holds the DEVELOPMENT key (the file DEVELOPMENT-KEY marks it). Put the real key there first, for example:" >&2
+  echo "  mv secure-boot secure-boot.dev && cp -r ~/Dev/signing-keys/secure-boot secure-boot" >&2
+  exit 1
 fi
 
 # mkosi's scratch space (TMPDIR) and caches (XDG_CACHE_HOME) default to /var/tmp and ~/.cache. On a

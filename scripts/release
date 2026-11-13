@@ -3,7 +3,7 @@
 #
 #   scripts/release 0.1.1                # build the installer image and the update, upload them to the release v0.1.1
 #   scripts/release 0.1.1 --draft        # create the release as a draft (review it on GitHub, then publish)
-#   scripts/release 0.1.1 --no-build     # reuse what is already in mkosi.output/ (and mkosi.output/root/)
+#   scripts/release 0.1.1 --no-build     # reuse the images already in mkosi.output/ (and mkosi.output/root/); the update archive is packed again
 #   scripts/release 0.1.1 --sign         # sign the update with the GPG key in $ECP_SIGN_KEY (scripts/make-image-signing-key)
 #
 # What it makes (everything lands in dist/release/<version>/ and is uploaded):
@@ -31,6 +31,11 @@ for arg in "$@"; do
   esac
 done
 for tool in zstd gh git; do command -v "$tool" >/dev/null || { echo "$tool is required" >&2; exit 1; }; done
+if [[ -e secure-boot/DEVELOPMENT-KEY ]]; then
+  echo "secure-boot/ holds the DEVELOPMENT Secure Boot key; a release must be signed with the real one." >&2
+  echo "  mv secure-boot secure-boot.dev && cp -r ~/Dev/signing-keys/secure-boot secure-boot   (then build again)" >&2
+  exit 1
+fi
 gh auth status >/dev/null 2>&1 || { echo "gh is not logged in (gh auth login)" >&2; exit 1; }
 repo="$(gh repo view --json nameWithOwner -q .nameWithOwner 2>/dev/null || echo Ersa-ECPX/ecp-mkosi)"
 tag="v$version"
@@ -42,8 +47,9 @@ if (( build )); then
   # sysext (scripts/build-installer-sysext) takes the SELinux file labels from that package.
   scripts/build x86-64 --profile root --image-version "$version"
   scripts/build x86-64 --profile installer --image-version "$version"
-  scripts/make-update-archive "$version" "${sign[@]}" >/dev/null
 fi
+# always (re)pack the update from mkosi.output/root: --sign must apply even when the images were built earlier (--no-build)
+scripts/make-update-archive "$version" "${sign[@]}" >/dev/null
 
 out="dist/release/$version"
 rm -rf "$out"; mkdir -p "$out"
