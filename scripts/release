@@ -60,14 +60,27 @@ for f in "$installer" "$update"; do [[ -f "$f" ]] || { echo "missing $f" >&2; ex
 echo "compressing the installer image ..." >&2
 zstd -T0 -10 -q -f -o "$out/ecp-installer_${version}-x86_64.raw.zst" "$installer"
 cp --reflink=auto "$update" "$out/"
-limit=$((1900 * 1024 * 1024))
+# Files are split into parts of at most ECP_RELEASE_PART_MB (default 1900: GitHub allows 2 GiB per file; a smaller value makes each
+# upload shorter, which helps on a slow connection). The checksum of the WHOLE file is taken before it is split and kept in
+# SHA256SUMS next to those of the parts, so the merged file can be checked too.
+limit=$(( ${ECP_RELEASE_PART_MB:-1900} * 1024 * 1024 ))
+wholes="$out/.whole-sums"; : > "$wholes"
 for f in "$out"/*.zst; do
   if (( $(stat -c %s "$f") > limit )); then
-    echo "$(basename "$f") is larger than 1.9 GiB; splitting it" >&2
-    split -b 1900M -d -a 2 "$f" "$f.part" && rm "$f"
+    echo "$(basename "$f") is larger than $(( limit / 1024 / 1024 )) MiB; splitting it" >&2
+    ( cd "$out" && sha256sum --binary "$(basename "$f")" >> .whole-sums )
+    split -b "${ECP_RELEASE_PART_MB:-1900}M" -d -a 2 "$f" "$f.part" && rm "$f"
   fi
 done
-( cd "$out" && sha256sum --binary * > SHA256SUMS )
+( cd "$out" && sha256sum --binary * > SHA256SUMS && cat .whole-sums >> SHA256SUMS ) && rm -f "$wholes"
+# With --sign the checksum file is signed too (detached, with the same image-update key as the update archive). The system's
+# own check of an update does not use this; it is for a person who downloads the installer.
+if (( ${#sign[@]} )); then
+  [[ -n "${ECP_SIGN_KEY:-}" ]] || { echo "--sign needs ECP_SIGN_KEY (a GPG key id)" >&2; exit 1; }
+  gpgcmd=(gpg --batch --yes --armor --detach-sign -u "$ECP_SIGN_KEY" -o "$out/SHA256SUMS.asc")
+  [[ -z "${ECP_SIGN_PASSPHRASE_FILE:-}" ]] || gpgcmd+=(--pinentry-mode loopback --passphrase-file "$ECP_SIGN_PASSPHRASE_FILE")
+  "${gpgcmd[@]}" "$out/SHA256SUMS"
+fi
 ls -la "$out" >&2
 
 if (( ${#sign[@]} )); then how=" (signed: the system checks the signature)"; else how=" (not signed: add --unsigned)"; fi
@@ -76,7 +89,7 @@ notes="Early preview of the Ersa Compute Platform ${version}. Tested in virtual 
 - ecp-installer_${version}-x86_64.raw.zst: the installer medium (boot it in a VM, or write it to a USB drive).
 - ecp_${version}-x86_64.tar.zst: an update for an installed system: \`foundation update install FILE\`${how}.
 - Files larger than 2 GiB are split: \`cat FILE.partNN... | zstd -d > image.raw\`.
-Check downloads against SHA256SUMS."
+Check downloads against SHA256SUMS (the merged file has a line there too: \`sha256sum -c SHA256SUMS --ignore-missing\`)${sign[@]:+, and SHA256SUMS against its signature SHA256SUMS.asc: \`gpg --verify SHA256SUMS.asc SHA256SUMS\`, with the Ersa image update key (fingerprint 3E08941D813471EA2EA509A2245AECF0314C00D5)}."
 gh release create "$tag" -R "$repo" --target main --prerelease "${draft[@]}" \
   --title "Ersa Compute Platform ${version} (early preview)" --notes "$notes" "$out"/*
 echo "released $tag: https://github.com/$repo/releases/tag/$tag" >&2
