@@ -91,8 +91,8 @@ attached at boot; the fix is a per-install command line addon on the ESP, not do
 - **Model:** the running slot is never modified. A new version is written to the other slot together
   with its UKI (`+3` tries); the next boot tries it and falls back if it fails.
 - **Rollback:** boot the previous slot (`foundation slot boot <slot>`, once or persistently).
-- **Slot tools (built, tested in a VM):** `slot status`, `slot boot [--once]`, `slot copy`
-  (clones a slot as `<name>-copy` with its own label and kernel image), `slot release`.
+- **Slot tools (built, tested in a VM):** `slot status`, `slot boot [--once]`, `slot release`
+  (this was tested in a VM before the dm-verity slots; `slot copy` is gone).
 - **Update payload (built, not tested):** `scripts/build x86-64 --profile root` produces the root image, its
   dm-verity hash tree and the signed kernel image; `scripts/make-update-archive` packs them; see the README.
 - **Over-the-air updates: install from a file or URL works on fake disks only.** `foundation update install`
@@ -112,7 +112,7 @@ contract in `foundation/data/dbus/org.ersa.Foundation1.xml`.
 | --- | --- | --- |
 | `Manager` | status, system facts, base packages, jobs, provisioning | files, rpm |
 | `Config` | settings with a schema | layered files |
-| `Boot` | slots, boot selection, slot copy/release, reboot | GPT + ESP + EFI variables, `bootctl`, `sfdisk`, logind (D-Bus) |
+| `Boot` | slots, boot selection, slot release, reboot | GPT + ESP + EFI variables, `bootctl`, `sfdisk`, logind (D-Bus) |
 | `Apps` | system-wide Flatpaks | libflatpak (search/info via the `flatpak` command) |
 | `Compat` | legacy RPMs as system extensions | `rpm`, a strict RPM unpacker, `systemd-sysext` |
 | `Extensions` | sysext/confext images | `systemd-sysext` / `systemd-confext` |
@@ -182,7 +182,7 @@ Not yet present: `Updates`, `Deploy` (installer), `Diagnostics`.
 ## What is verified, and what is not
 
 **Verified in a VM:** boot through systemd-boot, boot counting and blessing, `foundationd` started by
-D-Bus activation, `slot copy`, booting a copy (one-shot, counter-free entry id), `apps setup`; the
+D-Bus activation, booting a slot (one-shot, counter-free entry id), `apps setup`; the
 btrfs data volume (`/var` mounted from the `var` subvolume in the initrd) and the `/etc` overlay
 (assembled in the initrd, booting under enforcing SELinux). Two bugs found and fixed on the way: my
 overlay unit conflicted with `initrd-switch-root.target` (it unmounted `/etc` before switch-root), and

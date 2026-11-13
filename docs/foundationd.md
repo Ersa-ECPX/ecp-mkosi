@@ -41,8 +41,7 @@ Changes from the first design, and why:
 - Files cross the API as descriptors and are staged into a private directory; the RPM payload is
   read by our own strict unpacker, and the RPM's magic bytes are checked before any tool sees it
   (`rpm -qp` treats a text file as a manifest of paths to open).
-- A slot copy gets its own label (`ecp-root_<name>-copy`) and its own kernel image with an edited
-  `root=PARTLABEL=`, because two partitions with one label are ambiguous and block updates.
+- There is no slot copy: a copy has the same root hash and so the same partition UUIDs, which are what name a slot.
 
 Verification results are dated in `foundation/README.md#verification-status`.
 
