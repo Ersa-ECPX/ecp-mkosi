@@ -112,8 +112,10 @@ See also: [boot and slots](boot-and-slots.md), [repositories and bundles](reposi
 `ersa-updater` (package `foundation-updater`, launcher "System Update") is a GTK window over foundationd's D-Bus interface. The main page
 shows the running version and one button: **Check for Updates**, then **Update to X**, then **Restart to Finish Updating**.
 Installing a file by hand and the boot slots are in its three-dot menu. Installing always goes through `Updates.Install`, which
-asks polkit (`org.ersa.foundation.updates`, administrator password every time); the window only allows interactive
-authorization so the desktop's password dialog can appear.
+asks polkit (`org.ersa.foundation.updates`, an administrator password that polkit keeps for a few minutes); the window only allows
+interactive authorization so the desktop's password dialog can appear. The restart afterwards is `Updates.Restart`, which uses the same
+action and works only while an update waits, so install and restart ask once. (Polkit remembers an authorization per action and for
+about five minutes; it cannot keep one "until reboot".)
 
 "Check" reads a small feed from the update source, the setting `ota.url`: `<ota.url>/latest-<arch>.json`,
 
