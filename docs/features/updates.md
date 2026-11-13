@@ -107,26 +107,45 @@ notification, `bootctl` against real firmware.
 See also: [boot and slots](boot-and-slots.md), [repositories and bundles](repositories-and-bundles.md),
 [architecture.md](../architecture.md#updates-and-rollback-ab).
 
-## The updater window
+## Checking, installing and automatic updates
 
-`ersa-updater` (package `foundation-updater`, launcher "System Update") is a GTK window over foundationd's D-Bus interface. The main page
-shows the running version and one button: **Check for Updates**, then **Update to X**, then **Restart to Finish Updating**.
-Installing a file by hand and the boot slots are in its three-dot menu. Installing always goes through `Updates.Install`, which
-asks polkit (`org.ersa.foundation.updates`, an administrator password that polkit keeps for a few minutes); the window only allows
-interactive authorization so the desktop's password dialog can appear. The restart afterwards is `Updates.Restart`, which uses the same
-action and works only while an update waits, so install and restart ask once. (Polkit remembers an authorization per action and for
-about five minutes; it cannot keep one "until reboot".)
-
-"Check" reads a small feed from the update source, the setting `ota.url`: `<ota.url>/latest-<arch>.json`,
+The update source is the setting `ota.url`: `<ota.url>/latest-<arch>.json` is a small feed,
 
 ```json
 {"version": "0.1.1", "arch": "x86_64", "file": "ecp_0.1.1-x86_64.tar.zst", "size": 1610612736, "sha256": "..."}
 ```
 
-`file` is relative to the feed or a full address (https, or http on a private network). `scripts/make-update-archive` writes this file
-next to the archive, so serving `dist/update/` as `ota.url` is enough for a test: `foundation config set ota.url http://10.0.2.2:8000`
-in the guest. The feed only says what is available and is not signed; the archive's own signed manifest is what foundationd verifies
-(unless the install skips the signature check, which only the file install in the menu can do). The window offers an update only if its
-version is newer than the running one. **Not built:** foundationd itself does not refuse to install an older signed archive, and the
-settings `ota.channel`, `ota.auto_check` and `ota.auto_download` are not used by anything yet (no background checks, no unattended install).
+`file` is relative to the feed or a full address (https, or http on a private network). `scripts/make-update-archive` writes this file next to
+the archive, and `scripts/publish-feed` puts it on GitHub (see [ota-hosting.md](../ota-hosting.md)). The feed only says what is available and
+is not signed; the archive's own signed manifest is what `foundationd` verifies, and an over-the-air install can never skip that check.
 
+All of it is done by `foundationd`; the window and the command line are clients:
+
+| D-Bus method | What it does | Authorization |
+| --- | --- | --- |
+| `Updates.Check()` | asks the update source; records the answer in `/var/lib/foundation/update-check.json` | none (reads only; repeated calls within 30 s answer from the record) |
+| `Updates.Available()` | what the last check found, judged against what runs now | none |
+| `Updates.InstallLatest()` | job: downloads the newest update, checks its signature, writes it into the spare slot | `org.ersa.foundation.updates` |
+| `Updates.Install(fd, ...)` | job: installs an update file the caller opened | `org.ersa.foundation.updates` |
+| `Updates.Restart()` | restart into an installed update (only while one waits) | `org.ersa.foundation.updates` |
+
+On the command line: `foundation update check` (and `--install`), `foundation update install FILE`, `foundation update status`.
+
+**Automatic updates.** `foundation-autoupdate.timer` runs `foundation-autoupdate` (as root) about ten minutes after the computer starts and every
+six hours after that, each run delayed by a random time of up to an hour. It calls `Updates.Check`, which records what it found and makes the desktop
+announce a new version. It calls `Updates.InstallLatest` only if the administrator turned on **`ota.auto_update`** (the update window's menu has both
+switches; changing a setting needs the administrator's password). The new system starts at the next restart; nothing restarts the computer by itself.
+`foundationd` lets root do what polkit would ask others for, so the service needs no password and **no polkit rule was loosened**: nobody else gets
+a password-free install. With `ota.auto_check` off the service does nothing. It does not run on the installer medium.
+
+## The updater window
+
+`ersa-updater` (package `foundation-updater`, launcher "System Update") is a GTK window over those methods. The main page shows the running
+version and one button: **Check for Updates**, then **Update to X**, then **Restart to Finish Updating**. It shows at once what a background check
+found. The three-dot menu has Install from a File (the only place where the signature check can be skipped, or a version reinstalled), the two
+automatic-update switches and the boot slots. Installing asks polkit (`org.ersa.foundation.updates`, an administrator password that polkit keeps for a
+few minutes); the window only allows interactive authorization so the desktop's password dialog can appear. The restart afterwards uses the same
+action, so install and restart ask once. (Polkit remembers an authorization per action and for about five minutes; it cannot keep one "until reboot".)
+
+**Not built:** `foundationd` does not refuse to install an older signed archive, `ota.channel` is not used by anything, and there is no
+update-available indicator outside the notification (no GNOME Shell extension, no Software integration).

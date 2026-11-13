@@ -264,7 +264,7 @@ type, default, description and mutability, so unknown keys and bad values are re
 ota.url=https://github.com/Ersa-ECPX/ecp-mkosi/releases/download/updates     # vendor default: the GitHub release "updates" (scripts/publish-feed)
 ota.channel=stable
 ota.auto_check=true
-ota.auto_download=false
+ota.auto_update=false
 system.developer_mode=false
 ```
 

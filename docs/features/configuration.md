@@ -18,17 +18,17 @@ Settings have a **schema**, so a value of the wrong type or outside its allowed 
 `/etc/foundation/foundation.conf.d`, so an OS update can change defaults without losing a local choice. Changing a
 setting needs the polkit `config` action; reading does not.
 
-Current keys: `ota.url`, `ota.channel` (default `stable`), `ota.auto_check` (default true), `ota.auto_download`, and
+Current keys: `ota.url`, `ota.channel` (default `stable`), `ota.auto_check` (default true), `ota.auto_update` (default false), and
 `system.developer_mode`.
 
 What each does today (the others are stored but nothing reads them yet):
 
 | Key | Default | Effect now |
 | --- | --- | --- |
-| `ota.url` | `https://github.com/Ersa-ECPX/ecp-mkosi/releases/download/updates` | the update window's "Check for Updates" reads `<ota.url>/latest-<arch>.json` |
+| `ota.url` | `https://github.com/Ersa-ECPX/ecp-mkosi/releases/download/updates` | where `Updates.Check` and `Updates.InstallLatest` look: `<ota.url>/latest-<arch>.json` |
 | `ota.channel` | `stable` | none yet |
-| `ota.auto_check` | true | none yet (there is no background check) |
-| `ota.auto_download` | false | none yet |
+| `ota.auto_check` | true | `foundation-autoupdate.timer` checks the source about 10 minutes after start and every 6 hours (with a random delay) and a new version is announced |
+| `ota.auto_update` | false | the same service also downloads and installs the newer update (it starts at the next restart); setting it needs the administrator's password |
 | `system.developer_mode` | false | shown in `foundation status`; no developer feature exists yet |
 
 ## Provisioning

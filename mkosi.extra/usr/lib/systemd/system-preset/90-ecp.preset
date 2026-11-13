@@ -11,3 +11,4 @@ enable ersa-sysusers-extensions.service
 enable ersa-var-init.service
 enable foundation-bundles-select.service
 enable foundation-bundles-refresh.service
+enable foundation-autoupdate.timer
