@@ -9,7 +9,8 @@ Reads  mkosi.output/root/ecp_<version>.root-x86-64.raw.zst  (the root filesystem
        mkosi.output/root/ecp_<version>.efi                  (the unified kernel image)
        mkosi.output/root/ecp_<version>.root-verity-x86-64.raw.zst  (its dm-verity hash tree)
        mkosi.output/root/ecp_<version>.roothash                    (the root hash, which the kernel image also names)
-Writes dist/update/ecp_<version>-x86_64.tar.zst holding exactly: manifest.json (first), manifest.json.sig (with
+Writes dist/update/latest-x86_64.json (the feed the updater window reads: version, file, size, sha256) and
+       dist/update/ecp_<version>-x86_64.tar.zst holding exactly: manifest.json (first), manifest.json.sig (with
 --sign), uki.efi, root.erofs, verity.img (the small kernel image comes first so the installer can read it before the images). The manifest names the root hash and the size and SHA-256 of the three files. The manifest is what is signed and names the size and SHA-256 of the two big files.
 The signing key must live outside this repository, in your GPG keyring (scripts/make-image-signing-key makes one;
 ECP_SIGN_PASSPHRASE_FILE names a file holding its passphrase, for unattended signing); the system trusts a key only if its public
@@ -102,7 +103,15 @@ def main():
             compressor.stdin.close()
             if compressor.wait() != 0:
                 sys.exit("zstd failed")
+    # the feed the updater window reads (`<ota.url>/latest-<arch>.json`); it only says what is available, the archive's own
+    # signed manifest is what foundationd verifies
+    feed = os.path.join(args.output, f"latest-{ARCH[args.arch]}.json")
+    with open(feed, "w", encoding="utf-8") as handle:
+        json.dump({"version": args.version, "arch": ARCH[args.arch], "file": os.path.basename(out),
+                   "size": os.path.getsize(out), "sha256": digest(out)}, handle, indent=2)
+        handle.write("\n")
     print(out)
+    print(feed)
     print("install it with: foundation update install " + os.path.relpath(out) + ("" if args.sign else " --unsigned"))
 
 

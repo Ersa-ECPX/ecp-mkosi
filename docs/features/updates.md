@@ -106,3 +106,25 @@ notification, `bootctl` against real firmware.
 
 See also: [boot and slots](boot-and-slots.md), [repositories and bundles](repositories-and-bundles.md),
 [architecture.md](../architecture.md#updates-and-rollback-ab).
+
+## The updater window
+
+`ersa-updater` (package `foundation-updater`, launcher "System Update") is a GTK window over foundationd's D-Bus interface. The main page
+shows the running version and one button: **Check for Updates**, then **Update to X**, then **Restart to Finish Updating**.
+Installing a file by hand and the boot slots are in its three-dot menu. Installing always goes through `Updates.Install`, which
+asks polkit (`org.ersa.foundation.updates`, administrator password every time); the window only allows interactive
+authorization so the desktop's password dialog can appear.
+
+"Check" reads a small feed from the update source, the setting `ota.url`: `<ota.url>/latest-<arch>.json`,
+
+```json
+{"version": "0.1.1", "arch": "x86_64", "file": "ecp_0.1.1-x86_64.tar.zst", "size": 1610612736, "sha256": "..."}
+```
+
+`file` is relative to the feed or a full address (https, or http on a private network). `scripts/make-update-archive` writes this file
+next to the archive, so serving `dist/update/` as `ota.url` is enough for a test: `foundation config set ota.url http://10.0.2.2:8000`
+in the guest. The feed only says what is available and is not signed; the archive's own signed manifest is what foundationd verifies
+(unless the install skips the signature check, which only the file install in the menu can do). The window offers an update only if its
+version is newer than the running one. **Not built:** foundationd itself does not refuse to install an older signed archive, and the
+settings `ota.channel`, `ota.auto_check` and `ota.auto_download` are not used by anything yet (no background checks, no unattended install).
+

@@ -1,0 +1,70 @@
+#!/usr/bin/env python3
+"""Draw the "ersa.compute" wordmark as outlines (an SVG that needs no font), in Inter Tight: "ersa" bold, ".compute" light.
+
+    scripts/make-wordmark INTER_TIGHT_VARIABLE.ttf  [OUTDIR]       (needs the python packages fonttools and uharfbuzz)
+
+Inter Tight is not packaged in Tumbleweed, and a wordmark should not depend on which fonts a machine has, so the letters are
+converted to paths. Writes ersa-wordmark-light.svg (dark letters, for light backgrounds) and ersa-wordmark-dark.svg (light
+letters), with the same colours as the mark. The font is licensed under the SIL Open Font License 1.1 (The Inter Project
+Authors); converting its glyphs into a logo is allowed by it, and the licence text is in docs/licenses/ (INTER-TIGHT-OFL.txt).
+Default OUTDIR: foundation/foundation_updater.
+"""
+
+import os
+import sys
+
+import uharfbuzz as hb
+from fontTools.pens.boundsPen import BoundsPen
+from fontTools.pens.svgPathPen import SVGPathPen
+from fontTools.pens.transformPen import TransformPen
+
+RUNS = (("ersa", 700), (".compute", 300))
+# The SVG's own size is 84 px high: a window shows it at about 28 px, so it stays sharp on a screen with twice the pixels.
+COLOURS = {"light": "#26342f", "dark": "#f1f5f3"}      # the mark's stroke colours
+
+
+def main():
+    if len(sys.argv) < 2:
+        sys.exit(__doc__)
+    path = sys.argv[1]
+    out = sys.argv[2] if len(sys.argv) > 2 else os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "foundation", "foundation_updater")
+    blob = hb.Blob.from_file_path(path)
+    face = hb.Face(blob)
+    upem = face.upem
+    paths, x_cursor = [], 0
+    bounds = [1e9, 1e9, -1e9, -1e9]
+    for text, weight in RUNS:
+        font = hb.Font(face)
+        font.set_variations({"wght": weight})
+        buf = hb.Buffer()
+        buf.add_str(text)
+        buf.guess_segment_properties()
+        hb.shape(font, buf, {"kern": True, "liga": False})
+        for info, pos in zip(buf.glyph_infos, buf.glyph_positions):
+            pen = SVGPathPen(None)
+            transform = TransformPen(pen, (1, 0, 0, -1, x_cursor + pos.x_offset, -pos.y_offset))      # y grows downwards in SVG
+            font.draw_glyph_with_pen(info.codepoint, transform)
+            bpen = BoundsPen(None)
+            font.draw_glyph_with_pen(info.codepoint, TransformPen(bpen, (1, 0, 0, -1, x_cursor + pos.x_offset, -pos.y_offset)))
+            if bpen.bounds:
+                bounds = [min(bounds[0], bpen.bounds[0]), min(bounds[1], bpen.bounds[1]),
+                          max(bounds[2], bpen.bounds[2]), max(bounds[3], bpen.bounds[3])]
+            command = pen.getCommands()
+            if command:
+                paths.append(command)
+            x_cursor += pos.x_advance
+    pad = upem * 0.02
+    x0, y0, x1, y1 = bounds[0] - pad, bounds[1] - pad, bounds[2] + pad, bounds[3] + pad
+    width, height = x1 - x0, y1 - y0
+    for scheme, colour in COLOURS.items():
+        svg = (f'<svg xmlns="http://www.w3.org/2000/svg" width="{84 * width / height:.1f}" height="84" '
+               f'viewBox="{x0:.0f} {y0:.0f} {width:.0f} {height:.0f}">\n'
+               f'  <!-- ersa.compute in Inter Tight (SIL OFL 1.1), as outlines. Made by scripts/make-wordmark. -->\n'
+               f'  <path fill="{colour}" d="{" ".join(paths)}"/>\n</svg>\n')
+        with open(os.path.join(out, f"ersa-wordmark-{scheme}.svg"), "w", encoding="utf-8") as handle:
+            handle.write(svg)
+        print(os.path.join(out, f"ersa-wordmark-{scheme}.svg"), f"{width / height:.2f}:1")
+
+
+if __name__ == "__main__":
+    main()

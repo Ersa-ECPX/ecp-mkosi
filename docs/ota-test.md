@@ -29,6 +29,11 @@ scripts/make-update-archive 0.1.1                      # dist/update/ecp_0.1.1-x
 scripts/serve-update dist/update 8000                  # leave it running; it prints the guest command
 ```
 
+To try the window instead of the command line: in the guest run `foundation config set ota.url http://10.0.2.2:8000`, open
+"System Update" (`ersa-updater`), press **Check for Updates**, then **Update to 0.1.1**. A build made with `--sign` is installed
+without the signature check being skipped; an unsigned one can only be installed from the menu ("Install from a File..."), where the
+check can be switched off.
+
 ## 3. Install it (guest)
 
 ```sh

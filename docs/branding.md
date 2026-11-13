@@ -39,3 +39,16 @@ Wallpaper: `branding/wallpaper-light.svg` and `wallpaper-dark.svg` (the mark on 
 GNOME's own wallpapers (`gnome-backgrounds`) are installed beside them.
 
 Not yet replaced: other openSUSE logo files, and `/etc/os-release` compatibility files. None of this has been visually verified in a booted image. This replaces the earlier Rocky scheme, which patched `fedora-logo*` file names.
+
+## Fonts
+
+Inter is the interface font on the whole system (`mkosi.extra/usr/share/glib-2.0/schemas/20_ersa-fonts.gschema.override` sets the
+GNOME interface, document and title bar fonts; the package is `inter-fonts`). Monospace stays GNOME's default. GNOME's own default,
+Adwaita Sans, is a close relative of Inter. Applications that name a font themselves, and scripts Inter does not cover, still use the
+Noto fonts through fontconfig. Not yet seen on a booted image.
+
+The "ersa.compute" wordmark is Inter Tight ("ersa" bold, ".compute" light). Inter Tight is not packaged in Tumbleweed and a logo should
+not depend on installed fonts, so the letters are converted to outlines by `scripts/make-wordmark` into
+`foundation/foundation_updater/ersa-wordmark-{light,dark}.svg`. Inter Tight is under the SIL Open Font License 1.1
+(`docs/licenses/INTER-TIGHT-OFL.txt`).
+

@@ -25,5 +25,5 @@ rpmbuild --nodeps ${ECP_NOCHECK:+--nocheck} --define "_topdir $build_dir" \
   --define "_tmppath $build_dir/tmp" \
   --define "_sourcedir $build_dir/SOURCES" \
   -bb "$spec"
-rm -f "$package_dir"/foundation-[0-9]*.rpm "$package_dir"/foundationd-[0-9]*.rpm "$package_dir"/foundation-installer-[0-9]*.rpm
-cp "$build_dir"/RPMS/noarch/foundation-[0-9]*.rpm "$build_dir"/RPMS/noarch/foundationd-[0-9]*.rpm "$build_dir"/RPMS/noarch/foundation-installer-[0-9]*.rpm "$package_dir/"
+rm -f "$package_dir"/foundation-[0-9]*.rpm "$package_dir"/foundationd-[0-9]*.rpm "$package_dir"/foundation-installer-[0-9]*.rpm "$package_dir"/foundation-updater-[0-9]*.rpm
+cp "$build_dir"/RPMS/noarch/foundation-[0-9]*.rpm "$build_dir"/RPMS/noarch/foundationd-[0-9]*.rpm "$build_dir"/RPMS/noarch/foundation-installer-[0-9]*.rpm "$build_dir"/RPMS/noarch/foundation-updater-[0-9]*.rpm "$package_dir/"

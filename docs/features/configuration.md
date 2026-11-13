@@ -21,6 +21,16 @@ setting needs the polkit `config` action; reading does not.
 Current keys: `ota.url`, `ota.channel` (default `stable`), `ota.auto_check` (default true), `ota.auto_download`, and
 `system.developer_mode`.
 
+What each does today (the others are stored but nothing reads them yet):
+
+| Key | Default | Effect now |
+| --- | --- | --- |
+| `ota.url` | `https://updates.ersa.invalid/ecp` (a placeholder) | the update window's "Check for Updates" reads `<ota.url>/latest-<arch>.json` |
+| `ota.channel` | `stable` | none yet |
+| `ota.auto_check` | true | none yet (there is no background check) |
+| `ota.auto_download` | false | none yet |
+| `system.developer_mode` | false | shown in `foundation status`; no developer feature exists yet |
+
 ## Provisioning
 
 `system.provisioned` is false until first-boot setup finishes, then true, one way. It is machine **state**
