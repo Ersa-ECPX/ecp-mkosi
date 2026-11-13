@@ -27,7 +27,7 @@ space (default `/tmp/ecp-work`, which needs about 15 GiB free).
 | `build-rpms` | build the compiled RPMs inside a Tumbleweed container |
 | `build-splash-package` | render the boot splash package's logo PNGs |
 | `build-installer-sysext` | build the installer as a labelled system extension |
-| `publish-update`, `serve-update`, `ota-test-definitions` | the update test scaffolding ([updates](updates.md)) |
+| `serve-update` | a local HTTP server for testing an update from a QEMU guest ([updates](updates.md)) |
 | `qemu-smoke` | a boot smoke test in QEMU |
 | `qemu-uefi-test` | the boot splash's UEFI variable on OVMF: write, reboot, find, remove (two boots; retries a boot that stops in the initrd) |
 | `test-bundles-container` | run the repository and bundle code against the live repositories in a container |

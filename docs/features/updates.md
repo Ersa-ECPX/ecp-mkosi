@@ -102,9 +102,7 @@ notification, `bootctl` against real firmware.
   [ota-hosting.md](../ota-hosting.md)). Updates are installed from a file you have.
 - A shipped image signing key and a release process for it.
 - Delta updates, and a recovery system for an update that breaks both slots.
-- Installing an update from a `-copy` slot is not specially handled.
-- The older `systemd-sysupdate` transfer definitions and `scripts/publish-update` remain as scaffolding for a future
-  download path; `foundation update install` does not use them.
+- The `systemd-sysupdate` transfer definitions and `scripts/publish-update` were removed; `foundation update install` does not use them.
 
 See also: [boot and slots](boot-and-slots.md), [repositories and bundles](repositories-and-bundles.md),
 [architecture.md](../architecture.md#updates-and-rollback-ab).

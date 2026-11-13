@@ -93,11 +93,11 @@ attached at boot; the fix is a per-install command line addon on the ESP, not do
 - **Rollback:** boot the previous slot (`foundation slot boot <slot>`, once or persistently).
 - **Slot tools (built, tested in a VM):** `slot status`, `slot boot [--once]`, `slot copy`
   (clones a slot as `<name>-copy` with its own label and kernel image), `slot release`.
-- **Update payload (built, not tested):** `scripts/build x86-64 --profile root` produces the compressed
-  root image, the kernel image and checksums named for the existing transfer files; see the README.
-- **Over-the-air updates: not built.** The transfer files exist but point at a placeholder URL, the
-  `Updates` interface is only designed, and there is no update server or signing. `systemd-sysupdate`
-  and its D-Bus service `sysupdated` are shipped by Tumbleweed and are the intended engine.
+- **Update payload (built, not tested):** `scripts/build x86-64 --profile root` produces the root image, its
+  dm-verity hash tree and the signed kernel image; `scripts/make-update-archive` packs them; see the README.
+- **Over-the-air updates: install from a file or URL works on fake disks only.** `foundation update install`
+  writes a signed archive into the standby slot. There is no update server, no automatic check, and it has not
+  been run on a booted system. `systemd-sysupdate` is not used.
 - **Later:** zstd/lz4 compressed EROFS; delta updates (chunk-based) once images are measured.
 
 ## Management plane
@@ -205,8 +205,7 @@ per-worker sandboxes, encryption, aarch64 and device kernels.
 ## Order of work
 
 1. Rebuild and boot; install a bundle (`foundation compat install @codecs`) on a booted image under enforcing SELinux.
-2. Prove OTA against a local server in QEMU (`systemd-sysupdate`, then `Updates` via `sysupdated`), including the
-   per-install kernel command line surviving an update.
+2. Prove OTA against a local server in QEMU (`docs/ota-test.md`), including a tampered root being refused.
 3. Signing, then the "root from the booted entry" change that keeps a copied UKI signed; then dm-verity.
 4. An automated install-then-boot check in `scripts/qemu-smoke`.
 5. Encryption and a choice of data filesystem; quotas; compression and deltas when measured.

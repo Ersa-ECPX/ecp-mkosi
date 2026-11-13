@@ -1,9 +1,8 @@
 # Where to host updates
 
-What `systemd-sysupdate` needs from a server (a `url-file` source): plain HTTPS file downloads at a
-stable URL, with a `SHA256SUMS` manifest (and a detached `SHA256SUMS.gpg`) listing every file at
-that base URL. Not a web page, not a download wizard. Upload the payloads first and `SHA256SUMS` last,
-so a client never sees a manifest naming a file that is not there yet.
+What `foundation update install` needs from a server: plain HTTPS file downloads at a stable URL, one update archive per version
+(`ecp_<version>-x86_64.tar.zst`, built by `scripts/make-update-archive`; the manifest and its signature are inside the
+archive). Not a web page, not a download wizard. There is no index and no automatic check yet: a client is given the URL.
 
 Payload size today: the root image is about 1.4 GiB compressed, the kernel image about 0.1 GiB.
 Prices and limits below are from memory and change: check them before choosing.
@@ -21,9 +20,9 @@ Prices and limits below are from memory and change: check them before choosing.
 ## Whatever you choose
 
 - **Serve it from a domain you control** (for example `updates.<your-domain>`, a CNAME to the
-  backend), and put *that* in the transfer files. Then the storage can change later without
+  backend), and use that URL everywhere. Then the storage can change later without
   touching a single installed machine.
-- Sign `SHA256SUMS` with a key kept **outside** this repository, and ship the public key in the image
-  (`/usr/lib/systemd/import-pubring.pgp`). Without that, the transfer files must say `Verify=no`.
+- Sign each archive (`scripts/make-update-archive --sign`) with the image-update key kept **outside** this repository; the public key
+  ships in the image (`/usr/share/foundation/keys/`). Without it, an install needs `--unsigned`, which is for tests only.
 - Keep old versions for a while: a machine that is several versions behind can still reach the
   newest one, because each update is a full image.

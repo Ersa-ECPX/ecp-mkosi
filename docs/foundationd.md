@@ -211,15 +211,11 @@ merge, unmerge, refresh. It also reports why an extension is not merged (release
 
 ### Updates (OTA) and slots
 
-Payloads come from the `root` mkosi profile (`mkosi.output/root/`: `ecp_<version>.root-x86-64.raw.zst`,
-`ecp_<version>.efi`, checksums), whose names match the transfer files. Publishing (a merged,
-signed `SHA256SUMS` at the source URL) is not built.
+Payloads come from the `root` mkosi profile (`mkosi.output/root/`: the root image, its verity hash tree and the signed
+kernel image), packed by `scripts/make-update-archive`. Publishing (a server and an index) is not built.
 
-- Delegate to `systemd-sysupdate`. **Verified:** Tumbleweed's `systemd-experimental` 261.4 ships
-  `systemd-sysupdate` and `systemd-sysupdated`, with D-Bus interfaces
-  `org.freedesktop.sysupdate1.Manager`, `.Target` and `.Job`. `foundationd` should call
-  `sysupdated` rather than the CLI. **Unverified:** that `sysupdated` exposes the progress and
-  target granularity we need, and how it handles our `ecp-root_<version>` / `_empty` slot labels.
+- `foundationd` writes the update itself (`backends/updates.py`). `systemd-sysupdate` was tried as the engine and dropped:
+  it names slots by label, and the slots are now named by their dm-verity root hash.
 - `Check` queries the configured source; `Download` and `Apply` write only the inactive slot and
   the new UKI (named for boot counting, `ecp_<version>+3.efi`). `Apply` never changes the running
   slot. The update takes effect at the next reboot, and boot counting returns to the previous slot
@@ -285,13 +281,9 @@ Secrets (update-server tokens) are not configuration. They use systemd credentia
 
 ### Derived files
 
-Some consumers cannot read our config. `systemd-sysupdate` transfer files are the first: they take
-the source URL as text. Changing `ota.url` or `ota.channel` therefore renders override files into
-`/etc/sysupdate.d/` from templates shipped in `/usr/lib/foundation/templates/`, validates them, and
-only then replaces the old ones atomically. The current transfer files in the image hard-code a
-placeholder URL (`updates.ersa.invalid`); the defaults and the template replace that.
-**Unverified:** that `/etc/sysupdate.d` overrides take precedence over `/usr/lib/sysupdate.d` by
-file name in the shipped systemd version.
+Some consumers cannot read our config and take it as text. The design is to render such files from templates in
+`/usr/lib/foundation/templates/`, validate them, and replace the old ones atomically. There is no such consumer at the
+moment: the `systemd-sysupdate` transfer files that needed it were removed.
 
 ### Capability gates ("things tucked away")
 
@@ -401,11 +393,9 @@ systems do not receive installer-only pieces.
 
 ## Verified and unverified
 
-Verified in this project: Tumbleweed `systemd-experimental` 261.4 contains `systemd-sysupdated` and
-its D-Bus interface XML; Flatpak 1.18.4 with GObject typelib, fwupd 2.1.9 and polkit 128 exist in
+Verified in this project: Flatpak 1.18.4 with GObject typelib, fwupd 2.1.9 and polkit 128 exist in
 Tumbleweed; the Flatpak CLI backend against Flatpak 1.16.
 
-Unverified (check before relying on them): `sysupdated` behaviour with our slot layout and
-progress reporting; `/etc/sysupdate.d` override precedence; the compat-sysext pipeline end to end;
+Unverified (check before relying on them): the compat-sysext pipeline end to end;
 the PyGObject runtime in the image and in recovery; the hook that detects finished first-boot
 setup; seeding `/etc` on a deployed target.

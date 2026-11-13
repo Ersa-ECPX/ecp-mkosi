@@ -11,8 +11,6 @@ Status: **not run yet.** The code is tested against fake disks and images; the s
   foundation package that already contains the update code. The updater lives in the image, so rebuild first.
 - An **update archive** of a *different, higher* version built from the same sources.
 
-Never update from a `-copy` slot (made by `foundation slot copy`); test from the original slot.
-
 ## 1. Build the baseline (host) and install it
 
 ```sh
@@ -34,10 +32,10 @@ scripts/serve-update dist/update 8000                  # leave it running; it pr
 ## 3. Install it (guest)
 
 ```sh
-foundation slot status                                 # note the running slot (not a -copy)
+foundation slot status                                 # note the running slot and its version
 foundation update install http://10.0.2.2:8000/ecp_0.1.1-x86_64.tar.zst --unsigned
 foundation update status                               # an update is waiting for a restart
-foundation slot status                                 # 0.1.1 present as a standby slot, tries 3, the default entry
+foundation slot status                                 # the other slot (a or b) now shows version 0.1.1, tries 3, the default entry
 foundation compat bundles                              # (if you installed one) rebuilt for the new system: see the job log
 ```
 
@@ -64,4 +62,4 @@ The running slot is untouched. The new kernel image is installed last, so it nev
 
 ## Not covered
 
-An update server and automatic checks, the shipped signing key, delta updates, and the `-copy` slot case (section 0).
+An update server and automatic checks, the shipped signing key, delta updates, and syncing the older slot to the newer version after a good boot.

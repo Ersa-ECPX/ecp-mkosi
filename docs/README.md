@@ -35,7 +35,7 @@ below is the wiki's sidebar (`docs/wiki.json`).
 | [SELinux](features/selinux.md) | how labels are kept right for overlays, extensions and installed systems | Built; fixes found by booting |
 | [Secure Boot](features/secure-boot.md) | signed boot loader and kernel images, tested in QEMU with enforcement | Written; mkosi signing not yet run on the full image |
 | [dm-verity](features/dm-verity.md) | the root filesystem checked block by block, slots named by the root hash | Written; never booted |
-| [Updates (OTA)](features/updates.md) | signed image updates through `systemd-sysupdate` | **Scaffolding only**: not run end to end, no `foundation update` yet |
+| [Updates (OTA)](features/updates.md) | signed image updates written by `foundation update install` | Written and tested on fake disks; not yet run on a booted system |
 | [Testing an update locally](ota-test.md), [Hosting updates](ota-hosting.md) | the plan for the first real update test, and where to host | plan |
 
 ### Foundation: the management plane and its features

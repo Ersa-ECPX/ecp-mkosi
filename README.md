@@ -108,7 +108,7 @@ The image's locale is `en_US.UTF-8`, and the keyboard layout `us`. The time zone
 `mkosi.conf` installs, from the Tumbleweed OSS repository (every name checked against the repository metadata, not by a completed build):
 
 - **Kernel and firmware:** `kernel-default` (7.3.1 in the checked snapshot, **not** compiled for x86-64-v3), CPU microcode and the firmware sets for common PC hardware (Intel, AMD GPU, Wi-Fi, Bluetooth, audio).
-- **Update tools:** `systemd-experimental` (ships `systemd-sysupdate`), `udev` (ships `systemd-repart`, `bootctl`, `systemd-bless-boot`), `systemd-boot`, `systemd-ukify`.
+- **Update tools:** `systemd-experimental` (still installed; nothing uses its `systemd-sysupdate` any more), `udev` (ships `systemd-repart`, `bootctl`, `systemd-bless-boot`), `systemd-boot`, `systemd-ukify`.
 - **Networking and Bluetooth:** NetworkManager with Bluetooth (PAN/DUN) and WWAN support, ModemManager, firewalld, BlueZ with `bluez-obexd` (PBAP for phonebooks) and `gnome-bluetooth`. PipeWire's Bluetooth plugin is in `pipewire-spa-plugins-0_2`.
 - **Files and disks:** Nautilus with Sushi preview, File Roller and gvfs (MTP phones, iPhone via `gvfs-backend-afc`, SMB shares, gphoto, GNOME Online Accounts, FUSE), GNOME Disks with udisks2, Disk Usage Analyzer, and the ext4/XFS/FAT/exFAT/NTFS tools.
 - **Apps:** Text Editor, Loupe, Papers, Showtime (video), Calculator, Clocks, Characters, Contacts, Calendar, Weather, Maps, System Monitor, Font Viewer, Extensions, Tweaks, Camera (Snapshot), the Ghostty terminal and Flatpak. There is no app store yet: applications are installed with `foundation apps install`.
@@ -178,23 +178,22 @@ mkosi merges `mkosi.repart/` with anything a profile adds, so the default layout
 
 ## Update payload (profile)
 
-The `root` profile builds only what an update needs, so it can be published and written to the inactive slot by `systemd-sysupdate` (and `foundation`, through it):
+The `root` profile builds only what an update needs: the root filesystem, its dm-verity hash tree and the signed kernel image.
 
 ```sh
-scripts/build x86-64 --profile root
+scripts/build x86-64 --profile root --image-version 0.1.1
+scripts/make-update-archive 0.1.1          # dist/update/ecp_0.1.1-x86_64.tar.zst, add --sign for a signed one
+scripts/serve-update dist/update 8000      # a local HTTP server for a QEMU guest (10.0.2.2:8000)
 ```
 
-| File in `mkosi.output/root/` | What it is | Matched by |
-| --- | --- | --- |
-| `ecp_<version>.root-x86-64.raw.zst` | the root filesystem: read-only EROFS, exactly as large as its contents (`Minimize=best`), compressed with zstd | `sysupdate.d/10-root.transfer` |
-| `ecp_<version>.efi` | the kernel image; the transfer installs it as `ecp_<version>+3.efi` for boot counting | `sysupdate.d/20-uki.transfer` |
-| `ecp_<version>.SHA256SUMS` | checksums of the files above | see below |
+| File in `mkosi.output/root/` | What it is |
+| --- | --- |
+| `ecp_<version>.root-x86-64.raw` | the root filesystem: read-only EROFS, exactly as large as its contents (`Minimize=best`) |
+| `ecp_<version>.root-x86-64-verity.raw` | its dm-verity hash tree |
+| `ecp_<version>.efi` | the signed kernel image, whose command line carries `roothash=` |
+| `ecp_<version>.roothash` | the root hash |
 
-The normal image has the same output name, so the profile writes to its own directory. Its disk (a 260 MiB ESP and the minimal root) is a by-product that is never booted. The layout is `mkosi.repart.root/`.
-
-Publishing and testing: `scripts/publish-update` merges the payloads into one `SHA256SUMS` (and signs it with `--sign`), `scripts/serve-update` serves them over HTTP for a test, and `scripts/ota-test-definitions` writes test transfer files for a QEMU guest. The procedure is in [docs/ota-test.md](docs/ota-test.md) (not run yet), and [docs/ota-hosting.md](docs/ota-hosting.md) compares places to host updates.
-
-Still missing: signing keys and the public key in the image, a real URL (the transfer files point at the placeholder `https://updates.ersa.invalid/ecp/x86-64/`), and `foundation` calling `sysupdated` (`Updates` is only designed).
+`scripts/make-update-archive` packs these with a manifest and a signature. `foundation update install` writes it into the standby slot (see [updates](docs/features/updates.md) and [testing an update](docs/ota-test.md)). The normal image has the same output name, so the profile writes to its own directory. Its disk is a by-product that is never booted. The layout is `mkosi.repart.root/`.
 
 ## Installation
 
@@ -210,13 +209,13 @@ This **erases the entire device**. The script rejects mounted or undersized targ
 
 ## Updates and recovery design
 
-The update mechanism is **A/B root slots plus one UKI per slot**, using tools in openSUSE's systemd 261 (`systemd-sysupdate` is in the `systemd-experimental` package):
+The update mechanism is **A/B root slots plus one UKI per slot**, written by `foundation update install` (not `systemd-sysupdate`):
 
 - Each UKI is named `ecp_<version>+3.efi` and its command line has `roothash=<hash>`, which names its slot's partitions (their UUIDs are the two halves of the hash), so booting a UKI selects its slot. `/etc/kernel/tries` sets the initial boot counter to 3.
 - `systemd-boot` counts tries down; `systemd-bless-boot` marks the entry good after the graphical target is reached with no failed units (`graphical.target.d/10-ecp-boot-assessment.conf`, `systemd-boot-check-no-failures`). After three failed tries the bootloader falls back to the previous UKI.
-- `mkosi.extra/usr/lib/sysupdate.d/` has the root and UKI transfers. `SplitArtifacts=uki,partitions` makes mkosi emit their payloads. The source URL is a placeholder (`updates.ersa.invalid`) and the split file names in the `MatchPattern` lines are unverified guesses until a build is inspected.
+- Slots are named `a` and `b` (the partition labels' suffixes); the version a slot holds is shown next to the name.
 
-Status: configured, **not built, not booted, not fault-tested**. Gates before this is called an updater: a build that produces both slots, a boot into slot A, `bootctl list` showing the entry blessed, a second version written to slot B by `systemd-sysupdate`, a forced failed boot falling back to slot A, and an interrupted update leaving the running slot intact. There are no signed update artifacts, no update server, no dm-verity, and no Secure Boot keys. `/etc`, `/var`, and `/home` live outside both slots, so a root rollback cannot undo changes to them, and image updates do not refresh `/etc` defaults yet. The 1 GiB recovery partition is reserved only. [systemd-sysupdate](https://www.freedesktop.org/software/systemd/man/261/systemd-sysupdate.html), [systemd boot blessing](https://www.freedesktop.org/software/systemd/man/260/systemd-bless-boot.service.html).
+Status: the verity image boots in QEMU (the generators find the root hash and the hash partition). **Not yet tested:** an update written into the standby slot on a booted system, a forced failed boot falling back, an interrupted update leaving the running slot intact, and a tampered root being refused. `/etc`, `/var`, and `/home` live outside both slots, so a root rollback cannot undo changes to them. The 1 GiB recovery partition is reserved only. [systemd boot blessing](https://www.freedesktop.org/software/systemd/man/260/systemd-bless-boot.service.html).
 
 Secure Boot is the next boot integrity step after a labeled VM boot. mkosi can sign systemd-boot and generated UKIs with `SecureBoot=yes`, `SecureBootKey=`, and `SecureBootCertificate=`; signing keys must be supplied from outside this repository. Test key enrollment in disposable OVMF variables before touching hardware firmware. Every updated bootloader and UKI will need signing, while root integrity still requires a separate verity or equivalent design. No Secure Boot keys are generated or enrolled by this repository yet. [mkosi Secure Boot options](https://github.com/systemd/mkosi/blob/v27.1/mkosi/resources/man/mkosi.1.md).
 
