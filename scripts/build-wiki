@@ -288,6 +288,20 @@ def labels():
     return {entry["path"]: entry["label"] for category in categories() for entry in category["pages"] if entry.get("label")}
 
 
+def mark(theme):
+    """The Ersa mark (branding/ersa-mark-<theme>.svg) as inline SVG for a light or dark background; its comments are dropped."""
+    with open(os.path.join(ROOT, "branding", f"ersa-mark-{theme}.svg"), encoding="utf-8") as handle:
+        svg = re.sub(r"<!--.*?-->", "", handle.read(), flags=re.S)
+    return re.sub(r'<svg [^>]*>', f'<svg class="mark mark-{theme}" viewBox="0 0 128 128" aria-hidden="true">', svg, count=1).strip()
+
+
+def favicon():
+    """The mark as a data: URI icon, in the accent colour, so the tab is not blank (nothing is loaded from outside the file)."""
+    svg = ('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" fill="none"><g stroke="#1b7a62" stroke-width="12"><circle cx="49" cy="49" r="30"/>'
+           '<path d="M49 19H113M27.7868 70.2132L74 116.4264"/></g><path d="M63.8492 34.1508A21 21 0 0 1 34.1508 63.8492Z" fill="#1b7a62"/></svg>')
+    return "data:image/svg+xml," + re.sub(r"[<>#\"]", lambda m: "%{:02X}".format(ord(m.group(0))), svg)
+
+
 def plain(markdown):
     text = re.sub(r"```.*?```", lambda m: m.group(0).replace("```", " "), markdown, flags=re.S)
     text = re.sub(r"\[([^\]]+)\]\([^)]*\)", r"\1", text)
@@ -344,7 +358,8 @@ def build(output=None, pages=None, cname=""):
         pass
     generated = datetime.date.today().isoformat() + (f", from commit {commit}" if commit else "")
     document = TEMPLATE.replace("{{SECTIONS}}", "\n".join(sections)).replace("{{NAV}}", json.dumps(nav)) \
-        .replace("{{INDEX}}", json.dumps(index).replace("</", "<\\/")).replace("{{GENERATED}}", html.escape(generated))
+        .replace("{{INDEX}}", json.dumps(index).replace("</", "<\\/")).replace("{{GENERATED}}", html.escape(generated)) \
+        .replace("{{MARK_LIGHT}}", mark("light")).replace("{{MARK_DARK}}", mark("dark")).replace("{{FAVICON}}", favicon())
     if output:
         site = os.path.dirname(os.path.abspath(output))
         os.makedirs(site, exist_ok=True)
@@ -367,6 +382,7 @@ TEMPLATE = r"""<!doctype html>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Ersa Compute Platform wiki</title>
+<link rel="icon" href="{{FAVICON}}">
 <style>
 :root { --bg:#fcfdfc; --panel:#f4f7f5; --text:#17211d; --dim:#5a6962; --line:#e2e8e4; --accent:#1b7a62; --accent-bg:#e3f2ec;
         --code:#f0f4f2; --callout:#eef7f3; color-scheme: light; }
@@ -383,7 +399,9 @@ a { color:var(--accent); }
 .layout { display:grid; grid-template-columns: 17.5rem minmax(0,1fr); min-height:100vh; }
 aside { position:sticky; top:0; height:100vh; overflow:auto; background:var(--panel); border-right:1px solid var(--line); padding:1.2rem .9rem 2rem; }
 .brand { display:flex; align-items:center; gap:.65rem; color:var(--text); text-decoration:none; padding:.1rem .4rem; }
-.brand svg { width:1.9rem; height:1.9rem; color:var(--accent); flex:none; }
+.brand svg { width:2.4rem; height:2.4rem; flex:none; } .mark-dark { display:none; }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .mark-light { display:none; } :root:not([data-theme="light"]) .mark-dark { display:block; } }
+:root[data-theme="dark"] .mark-light { display:none; } :root[data-theme="dark"] .mark-dark { display:block; }
 .brand b { display:block; font-size:1rem; line-height:1.2; } .brand small { display:block; color:var(--dim); font-size:.78rem; }
 .tools { display:flex; gap:.4rem; margin:1rem 0 .4rem; }
 input[type=search] { flex:1; min-width:0; padding:.55rem .75rem; border:1px solid var(--line); border-radius:.6rem; background:var(--bg); color:var(--text); font:inherit; font-size:.92rem; }
@@ -448,7 +466,7 @@ footer { margin-top:3.5rem; padding-top:1.2rem; border-top:1px solid var(--line)
 <div class="topbar"><button class="menu" type="button" aria-label="Open the contents">Contents</button><b>Ersa Compute Platform</b></div>
 <div class="layout">
 <aside id="side">
-  <a class="brand" href="#/overview"><svg viewBox="0 0 32 32" aria-hidden="true"><circle cx="13" cy="14" r="8.5" fill="none" stroke="currentColor" stroke-width="3.2"/><path d="M13 5.5h17M19.5 20.5l9 9" fill="none" stroke="currentColor" stroke-width="3.2"/></svg><span><b>Ersa Compute Platform</b><small>Documentation</small></span></a>
+  <a class="brand" href="#/overview">{{MARK_LIGHT}}{{MARK_DARK}}<span><b>Ersa Compute Platform</b><small>Documentation</small></span></a>
   <div class="tools"><input id="q" type="search" placeholder="Search  ( / )" aria-label="Search the documentation" autocomplete="off">
   <button class="theme" type="button" title="Switch theme" aria-label="Switch theme">Theme</button></div>
   <nav id="nav"></nav>
