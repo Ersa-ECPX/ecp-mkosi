@@ -288,21 +288,6 @@ def labels():
     return {entry["path"]: entry["label"] for category in categories() for entry in category["pages"] if entry.get("label")}
 
 
-def badge(markdown):
-    """(label, class) from a page's leading **Status:** line, or None."""
-    match = re.search(r"^\*\*Status:(.+?)(?:\n\n|\Z)", markdown, re.S | re.M)
-    if not match:
-        return None
-    text = " ".join(match.group(1).replace("*", " ").split()).lstrip(": ").lower()
-    if "scaffolding only" in text or text.startswith("not "):
-        return "Not usable yet", "bad"
-    if text.startswith(("partly", "partial")):
-        return "Partly built", "mid"
-    if text.startswith(("built", "implemented")) or re.search(r"\bbuilt\b", text[:140]):
-        return "Built", "ok"
-    return None
-
-
 def plain(markdown):
     text = re.sub(r"```.*?```", lambda m: m.group(0).replace("```", " "), markdown, flags=re.S)
     text = re.sub(r"\[([^\]]+)\]\([^)]*\)", r"\1", text)
@@ -345,14 +330,11 @@ def build(output=None, pages=None, cname=""):
             return f"assets/{name}"
         converter.resolve_image = resolve_image
         body = converter.convert(markdown)
-        status = badge(markdown)
-        label = f'<span class="badge {status[1]}">{status[0]}</span>' if status else ""
         title = converter.title or pid
-        sections.append(f'<section class="page" data-page="{pid}" data-title="{html.escape(title)}"><div class="meta">'
-                        f'{html.escape(group)} {label}<span class="src">{html.escape(src)}</span></div>'
-                        f'<article>{body}</article></section>')
+        sections.append(f'<section class="page" data-page="{pid}" data-title="{html.escape(title)}" data-group="{html.escape(group)}" '
+                        f'data-src="{html.escape(src)}"><article>{body}</article></section>')
         nav.setdefault(group, {"blurb": blurbs.get(group, ""), "pages": []})["pages"].append(
-            {"id": pid, "title": short.get(src, title), "badge": status[1] if status else ""})
+            {"id": pid, "title": short.get(src, title)})
         index.append({"id": pid, "title": title, "group": group, "text": plain(markdown)})
     commit = ""
     try:
@@ -386,108 +368,168 @@ TEMPLATE = r"""<!doctype html>
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Ersa Compute Platform wiki</title>
 <style>
-:root { --bg:#fbfcfb; --panel:#f1f4f2; --text:#1d2723; --dim:#5d6b65; --line:#dbe2de; --accent:#2f7d6a; --accent-bg:#e1f0ea;
-        --code:#eef2f0; --ok:#1f7a4d; --mid:#9a6a00; --bad:#b3261e; color-scheme: light; }
-@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) { --bg:#141917; --panel:#1b221f; --text:#e3eae6;
-  --dim:#9aa8a1; --line:#2b3430; --accent:#6fc2a9; --accent-bg:#1f332c; --code:#212a26; --ok:#6fd49b; --mid:#e0b04a; --bad:#ff8a80; color-scheme: dark; } }
-:root[data-theme="dark"] { --bg:#141917; --panel:#1b221f; --text:#e3eae6; --dim:#9aa8a1; --line:#2b3430; --accent:#6fc2a9;
-  --accent-bg:#1f332c; --code:#212a26; --ok:#6fd49b; --mid:#e0b04a; --bad:#ff8a80; color-scheme: dark; }
+:root { --bg:#fcfdfc; --panel:#f4f7f5; --text:#17211d; --dim:#5a6962; --line:#e2e8e4; --accent:#1b7a62; --accent-bg:#e3f2ec;
+        --code:#f0f4f2; --callout:#eef7f3; color-scheme: light; }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) { --bg:#0f1412; --panel:#141b18; --text:#e6ede9; --dim:#97a69f;
+  --line:#26302b; --accent:#5ec2a3; --accent-bg:#1a2d26; --code:#1a2320; --callout:#15221d; color-scheme: dark; } }
+:root[data-theme="dark"] { --bg:#0f1412; --panel:#141b18; --text:#e6ede9; --dim:#97a69f; --line:#26302b; --accent:#5ec2a3;
+  --accent-bg:#1a2d26; --code:#1a2320; --callout:#15221d; color-scheme: dark; }
 * { box-sizing: border-box; }
-html { scroll-padding-top: 1rem; }
-body { margin:0; background:var(--bg); color:var(--text); font:16px/1.6 system-ui, -apple-system, "Segoe UI", Roboto, "Noto Sans", sans-serif; }
-.layout { display:grid; grid-template-columns: 19rem minmax(0,1fr); min-height:100vh; }
-aside { position:sticky; top:0; height:100vh; overflow:auto; background:var(--panel); border-right:1px solid var(--line); padding:1rem 1rem 2rem; }
-aside h1 { font-size:1.05rem; margin:0 0 .2rem; } aside h1 a { color:var(--text); text-decoration:none; }
-aside .tag { color:var(--dim); font-size:.8rem; margin-bottom:.8rem; }
-.tools { display:flex; gap:.4rem; margin:.6rem 0; }
-input[type=search] { flex:1; min-width:0; padding:.5rem .65rem; border:1px solid var(--line); border-radius:.5rem; background:var(--bg); color:var(--text); font:inherit; }
-button.theme, button.menu { border:1px solid var(--line); background:var(--bg); color:var(--text); border-radius:.5rem; padding:.4rem .6rem; font:inherit; cursor:pointer; }
-nav h2 { font-size:.72rem; letter-spacing:.08em; text-transform:uppercase; color:var(--dim); margin:1.2rem 0 .3rem; }
-nav a { display:flex; align-items:center; gap:.4rem; padding:.28rem .55rem; border-radius:.4rem; color:var(--text); text-decoration:none; font-size:.93rem; }
-nav a:hover { background:var(--accent-bg); } nav a.current { background:var(--accent-bg); color:var(--accent); font-weight:600; }
-.dot { width:.5rem; height:.5rem; border-radius:50%; flex:none; background:var(--line); }
-.dot.ok { background:var(--ok); } .dot.mid { background:var(--mid); } .dot.bad { background:var(--bad); }
-main { padding:2rem clamp(1rem,4vw,3.5rem) 4rem; } .wrap { max-width:50rem; margin:0 auto; }
-.meta { color:var(--dim); font-size:.82rem; margin-bottom:.4rem; display:flex; gap:.6rem; align-items:center; flex-wrap:wrap; }
-.meta .src { font-family:ui-monospace, monospace; margin-left:auto; }
-.badge { padding:.1rem .55rem; border-radius:99px; font-size:.75rem; font-weight:600; border:1px solid currentColor; }
-.badge.ok { color:var(--ok); } .badge.mid { color:var(--mid); } .badge.bad { color:var(--bad); }
-article h1 { font-size:2rem; line-height:1.2; margin:.2rem 0 1rem; } article h2 { margin:2.2rem 0 .6rem; padding-bottom:.3rem; border-bottom:1px solid var(--line); }
-article h3 { margin:1.6rem 0 .4rem; } article a { color:var(--accent); }
+html { scroll-padding-top: 4.5rem; scroll-behavior: smooth; }
+@media (prefers-reduced-motion: reduce) { html { scroll-behavior: auto; } }
+body { margin:0; background:var(--bg); color:var(--text); font:16.5px/1.7 system-ui, -apple-system, "Segoe UI", Roboto, "Noto Sans", sans-serif; -webkit-font-smoothing:antialiased; }
+a { color:var(--accent); }
+:focus-visible { outline:2px solid var(--accent); outline-offset:2px; border-radius:.3rem; }
+.layout { display:grid; grid-template-columns: 17.5rem minmax(0,1fr); min-height:100vh; }
+aside { position:sticky; top:0; height:100vh; overflow:auto; background:var(--panel); border-right:1px solid var(--line); padding:1.2rem .9rem 2rem; }
+.brand { display:flex; align-items:center; gap:.65rem; color:var(--text); text-decoration:none; padding:.1rem .4rem; }
+.brand svg { width:1.9rem; height:1.9rem; color:var(--accent); flex:none; }
+.brand b { display:block; font-size:1rem; line-height:1.2; } .brand small { display:block; color:var(--dim); font-size:.78rem; }
+.tools { display:flex; gap:.4rem; margin:1rem 0 .4rem; }
+input[type=search] { flex:1; min-width:0; padding:.55rem .75rem; border:1px solid var(--line); border-radius:.6rem; background:var(--bg); color:var(--text); font:inherit; font-size:.92rem; }
+button { font:inherit; }
+button.theme, button.menu { border:1px solid var(--line); background:var(--bg); color:var(--text); border-radius:.6rem; padding:.4rem .7rem; cursor:pointer; font-size:.9rem; }
+nav h2 { font-size:.7rem; letter-spacing:.09em; text-transform:uppercase; color:var(--dim); margin:1.4rem 0 .35rem; padding:0 .5rem; font-weight:700; }
+nav a { display:block; padding:.34rem .6rem; border-radius:.5rem; color:var(--text); text-decoration:none; font-size:.93rem; line-height:1.35; border-left:2px solid transparent; }
+nav a:hover { background:var(--accent-bg); }
+nav a.current { background:var(--accent-bg); color:var(--accent); font-weight:600; border-left-color:var(--accent); border-radius:0 .5rem .5rem 0; }
+.topbar { display:none; }
+.content { display:grid; grid-template-columns: minmax(0,1fr) 15rem; gap:2.5rem; padding:0 clamp(1rem,3vw,3rem); }
+main { padding:2.6rem 0 4rem; min-width:0; } .wrap { max-width:44rem; margin:0 auto; }
+.crumb { display:flex; align-items:center; gap:.6rem; color:var(--dim); font-size:.84rem; margin-bottom:.5rem; }
+.crumb .edit { margin-left:auto; color:var(--dim); text-decoration:none; border:1px solid var(--line); border-radius:99px; padding:.1rem .7rem; font-size:.78rem; }
+.crumb .edit:hover { color:var(--accent); border-color:var(--accent); }
+article h1 { font-size:2.3rem; line-height:1.15; letter-spacing:-.02em; margin:.2rem 0 1.2rem; }
+article h2 { font-size:1.5rem; letter-spacing:-.01em; margin:2.6rem 0 .7rem; line-height:1.25; }
+article h3 { font-size:1.15rem; margin:1.8rem 0 .4rem; }
+article p, article ul, article ol { margin:.8rem 0; } article li { margin:.25rem 0; }
+article hr { border:0; border-top:1px solid var(--line); margin:2rem 0; }
 article h1:hover .anchor, article h2:hover .anchor, article h3:hover .anchor { opacity:1; }
-code { background:var(--code); padding:.12rem .35rem; border-radius:.3rem; font:.88em ui-monospace, SFMono-Regular, Menlo, monospace; }
-pre { position:relative; background:var(--code); border:1px solid var(--line); border-radius:.6rem; padding:.9rem 1rem; overflow:auto; }
-pre code { background:none; padding:0; font-size:.85rem; line-height:1.5; white-space:pre; }
-.copy { position:absolute; top:.4rem; right:.4rem; font:.72rem system-ui; border:1px solid var(--line); background:var(--bg); color:var(--dim); border-radius:.35rem; padding:.15rem .5rem; cursor:pointer; opacity:0; }
+article blockquote { margin:1.2rem 0; padding:.7rem 1.1rem; background:var(--callout); border-left:3px solid var(--accent); border-radius:0 .6rem .6rem 0; }
+article blockquote p { margin:.3rem 0; }
+code { background:var(--code); padding:.14rem .38rem; border-radius:.35rem; font:.87em ui-monospace, SFMono-Regular, "JetBrains Mono", Menlo, monospace; }
+pre { position:relative; background:var(--code); border:1px solid var(--line); border-radius:.7rem; padding:1rem 1.1rem; overflow:auto; margin:1.1rem 0; }
+pre code { background:none; padding:0; font-size:.85rem; line-height:1.55; white-space:pre; }
+.copy { position:absolute; top:.45rem; right:.45rem; font-size:.72rem; border:1px solid var(--line); background:var(--bg); color:var(--dim); border-radius:.4rem; padding:.15rem .55rem; cursor:pointer; opacity:0; }
 pre:hover .copy, .copy:focus { opacity:1; }
-.table { overflow-x:auto; margin:1rem 0; } table { border-collapse:collapse; width:100%; font-size:.92rem; }
-th, td { border:1px solid var(--line); padding:.45rem .65rem; text-align:left; vertical-align:top; } th { background:var(--panel); }
+.table { overflow-x:auto; margin:1.2rem 0; border:1px solid var(--line); border-radius:.7rem; }
+table { border-collapse:collapse; width:100%; font-size:.92rem; }
+th, td { padding:.55rem .8rem; text-align:left; vertical-align:top; border-top:1px solid var(--line); }
+thead th { background:var(--panel); border-top:0; font-size:.78rem; letter-spacing:.04em; text-transform:uppercase; color:var(--dim); }
+tbody tr:first-child td { border-top:0; }
 .filelink { border-bottom:1px dotted var(--dim); cursor:help; }
-article img { max-width:100%; height:auto; border-radius:.7rem; border:1px solid var(--line); display:block; margin:.4rem auto; }
-figure { margin:1.4rem 0; } figcaption { color:var(--dim); font-size:.85rem; text-align:center; margin-top:.4rem; }
+article img { max-width:100%; height:auto; border-radius:.8rem; border:1px solid var(--line); display:block; margin:.4rem auto; }
+figure { margin:1.5rem 0; } figcaption { color:var(--dim); font-size:.85rem; text-align:center; margin-top:.4rem; }
 .page { display:none; } .page.on { display:block; }
-.results { display:none; } .results.on { display:block; } .results a { display:block; padding:.7rem .9rem; margin:.5rem 0; border:1px solid var(--line); border-radius:.6rem; color:var(--text); text-decoration:none; }
-.results a:hover { border-color:var(--accent); } .results b { color:var(--accent); } .results small { display:block; color:var(--dim); margin-top:.2rem; }
+.pager { display:grid; grid-template-columns:1fr 1fr; gap:1rem; margin:3rem 0 0; }
+.pager a { display:block; border:1px solid var(--line); border-radius:.8rem; padding:.7rem 1rem; text-decoration:none; color:var(--text); }
+.pager a:hover { border-color:var(--accent); } .pager small { display:block; color:var(--dim); font-size:.75rem; text-transform:uppercase; letter-spacing:.06em; }
+.pager a.next { text-align:right; grid-column:2; }
+.toc { position:sticky; top:0; align-self:start; max-height:100vh; overflow:auto; padding:2.6rem 0 2rem; font-size:.84rem; }
+.toc h3 { font-size:.7rem; letter-spacing:.09em; text-transform:uppercase; color:var(--dim); margin:0 0 .5rem; }
+.toc a { display:block; padding:.18rem 0 .18rem .8rem; color:var(--dim); text-decoration:none; border-left:2px solid var(--line); line-height:1.4; }
+.toc a.sub { padding-left:1.6rem; } .toc a:hover { color:var(--text); } .toc a.on { color:var(--accent); border-left-color:var(--accent); }
+.results { display:none; } .results.on { display:block; } .results h2 { margin-top:0; }
+.results a { display:block; padding:.8rem 1rem; margin:.55rem 0; border:1px solid var(--line); border-radius:.8rem; color:var(--text); text-decoration:none; }
+.results a:hover, .results a.sel { border-color:var(--accent); background:var(--accent-bg); } .results b { color:var(--accent); } .results small { display:block; color:var(--dim); margin-top:.2rem; }
 mark { background:var(--accent-bg); color:inherit; border-radius:.2rem; padding:0 .1rem; }
-footer { margin-top:3rem; color:var(--dim); font-size:.8rem; }
-button.menu { display:none; }
-@media (max-width: 52rem) { .layout { grid-template-columns:1fr; } aside { position:static; height:auto; display:none; } aside.open { display:block; }
-  button.menu { display:inline-block; position:sticky; top:.5rem; margin:.5rem; z-index:2; } }
-@media print { aside, button.menu, .copy { display:none; } .layout { display:block; } .page { display:block !important; page-break-after:always; } }
+footer { margin-top:3.5rem; padding-top:1.2rem; border-top:1px solid var(--line); color:var(--dim); font-size:.8rem; }
+@media (max-width: 70rem) { .content { grid-template-columns:minmax(0,1fr); } .toc { display:none; } }
+@media (max-width: 52rem) {
+  .layout { grid-template-columns:1fr; }
+  aside { position:fixed; inset:0 18% 0 0; z-index:20; height:100vh; transform:translateX(-102%); transition:transform .18s; }
+  aside.open { transform:none; box-shadow:0 0 40px #0005; }
+  .topbar { display:flex; align-items:center; gap:.7rem; position:sticky; top:0; z-index:10; background:var(--bg); border-bottom:1px solid var(--line); padding:.55rem 1rem; }
+  .topbar b { font-size:.95rem; } main { padding-top:1.4rem; } article h1 { font-size:1.8rem; } }
+@media print { aside, .topbar, .copy, .toc, .pager, .edit { display:none; } .layout, .content { display:block; } .page { display:block !important; page-break-after:always; } }
 </style>
 </head>
 <body>
-<button class="menu" type="button" aria-label="Contents">Contents</button>
+<div class="topbar"><button class="menu" type="button" aria-label="Open the contents">Contents</button><b>Ersa Compute Platform</b></div>
 <div class="layout">
 <aside id="side">
-  <h1><a href="#/overview">Ersa Compute Platform</a></h1>
-  <div class="tag">Documentation wiki</div>
+  <a class="brand" href="#/overview"><svg viewBox="0 0 32 32" aria-hidden="true"><circle cx="13" cy="14" r="8.5" fill="none" stroke="currentColor" stroke-width="3.2"/><path d="M13 5.5h17M19.5 20.5l9 9" fill="none" stroke="currentColor" stroke-width="3.2"/></svg><span><b>Ersa Compute Platform</b><small>Documentation</small></span></a>
   <div class="tools"><input id="q" type="search" placeholder="Search  ( / )" aria-label="Search the documentation" autocomplete="off">
   <button class="theme" type="button" title="Switch theme" aria-label="Switch theme">Theme</button></div>
   <nav id="nav"></nav>
 </aside>
+<div class="content">
 <main><div class="wrap">
 <div id="results" class="results"></div>
 <div id="pages">
 {{SECTIONS}}
 </div>
+<div class="pager" id="pager"></div>
 <footer>Generated {{GENERATED}}. Edit the Markdown under <code>docs/</code> and run <code>scripts/build-wiki</code>.</footer>
 </div></main>
+<div class="toc" id="toc"></div>
 </div>
-<noscript><style>.page{display:block!important}aside{display:none}</style></noscript>
+</div>
+<noscript><style>.page{display:block!important}aside,.toc{display:none}</style></noscript>
 <script>
 const NAV = {{NAV}};
 const INDEX = {{INDEX}};
 const $ = (s, r = document) => r.querySelector(s);
 const pages = new Map([...document.querySelectorAll(".page")].map(p => [p.dataset.page, p]));
-const nav = $("#nav");
+const nav = $("#nav"), order = [];
 for (const [group, info] of Object.entries(NAV)) {
   const h = document.createElement("h2"); h.textContent = group; h.title = info.blurb; nav.append(h);
   for (const it of info.pages) {
-    const a = document.createElement("a"); a.href = "#/" + it.id; a.dataset.id = it.id;
-    a.innerHTML = '<span class="dot ' + it.badge + '"></span>'; a.append(it.title.replace(/^Ersa Compute Platform documentation$/, "Overview")); nav.append(a);
+    const title = it.title.replace(/^Ersa Compute Platform documentation$/, "Overview");
+    const a = document.createElement("a"); a.href = "#/" + it.id; a.dataset.id = it.id; a.textContent = title; nav.append(a);
+    order.push({ id: it.id, title, group });
   }
 }
-for (const h of document.querySelectorAll("article h1, article h2, article h3")) {
-  const a = document.createElement("a"); a.className = "anchor"; a.href = "#"; a.textContent = " #"; a.style.cssText = "opacity:0;text-decoration:none;font-weight:400";
-  a.addEventListener("click", e => { e.preventDefault(); const page = h.closest(".page").dataset.page; location.hash = "#/" + page + ":" + h.id; }); h.append(a);
+for (const [id, page] of pages) {                       // breadcrumb, edit link and heading anchors, once
+  const src = page.dataset.src, repo = src.startsWith("foundation/") ? ["foundation", src.slice(11)] : ["ecp-mkosi", src];
+  const crumb = document.createElement("div"); crumb.className = "crumb";
+  crumb.innerHTML = "<span>" + page.dataset.group.replace(/&/g, "&amp;") + '</span><a class="edit" href="https://github.com/Ersa-ECPX/' + repo[0] + "/blob/main/" + repo[1] + '">Edit on GitHub</a>';
+  page.prepend(crumb);
+  for (const h of page.querySelectorAll("article h1, article h2, article h3")) {
+    const a = document.createElement("a"); a.className = "anchor"; a.href = "#"; a.textContent = " #"; a.style.cssText = "opacity:0;text-decoration:none;font-weight:400";
+    a.addEventListener("click", e => { e.preventDefault(); location.hash = "#/" + id + ":" + h.id; }); h.append(a);
+  }
 }
 for (const b of document.querySelectorAll(".copy")) b.addEventListener("click", () => {
   navigator.clipboard?.writeText(b.nextElementSibling.textContent).then(() => { b.textContent = "Copied"; setTimeout(() => b.textContent = "Copy", 1200); });
 });
+let spy = null;
+function contents(page, key) {
+  const toc = $("#toc"); toc.innerHTML = ""; if (spy) spy.disconnect();
+  const heads = [...page.querySelectorAll("article h2, article h3")].filter(h => h.id);
+  if (heads.length < 3) return;
+  toc.insertAdjacentHTML("beforeend", "<h3>On this page</h3>");
+  const links = new Map();
+  for (const h of heads) {
+    const a = document.createElement("a"); a.href = "#/" + key + ":" + h.id; if (h.tagName === "H3") a.className = "sub";
+    a.textContent = h.textContent.replace(/\s*#\s*$/, ""); toc.append(a); links.set(h, a);
+  }
+  spy = new IntersectionObserver(entries => {
+    for (const e of entries) if (e.isIntersecting) { for (const a of toc.querySelectorAll("a")) a.classList.remove("on"); links.get(e.target).classList.add("on"); }
+  }, { rootMargin: "-10% 0px -80% 0px" });
+  for (const h of heads) spy.observe(h);
+}
+function pager(key) {
+  const i = order.findIndex(o => o.id === key), box = $("#pager"); box.innerHTML = "";
+  const link = (o, cls, label) => '<a class="' + cls + '" href="#/' + o.id + '"><small>' + label + "</small>" + o.title.replace(/&/g, "&amp;") + "</a>";
+  if (i > 0) box.insertAdjacentHTML("beforeend", link(order[i - 1], "prev", "Previous"));
+  if (i >= 0 && i < order.length - 1) box.insertAdjacentHTML("beforeend", link(order[i + 1], "next", "Next"));
+}
 function show() {
   const [id, anchor] = decodeURIComponent(location.hash.replace(/^#\/?/, "")).split(":");
   const key = pages.has(id) ? id : "overview";
-  $("#q").value = ""; $("#results").classList.remove("on"); $("#pages").style.display = "";
+  $("#q").value = ""; $("#results").classList.remove("on"); $("#pages").style.display = ""; $("#pager").style.display = "";
   for (const [k, p] of pages) p.classList.toggle("on", k === key);
   for (const a of nav.querySelectorAll("a")) a.classList.toggle("current", a.dataset.id === key);
   document.title = pages.get(key).dataset.title + " | Ersa Compute Platform";
   $("#side").classList.remove("open");
+  contents(pages.get(key), key); pager(key);
   const target = anchor && document.getElementById(anchor);
   if (target) target.scrollIntoView(); else window.scrollTo(0, 0);
 }
 addEventListener("hashchange", show); show();
 const esc = s => s.replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+let shown = [], selected = -1;
 function search(q) {
   const terms = q.toLowerCase().split(/\s+/).filter(Boolean), box = $("#results");
   if (!terms.length) { show(); return; }
@@ -500,12 +542,20 @@ function search(q) {
     snip = esc(snip); for (const w of terms) snip = snip.replace(new RegExp("(" + w.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") + ")", "ig"), "<mark>$1</mark>");
     hits.push({ d, score: (terms.some(w => t.includes(w)) ? 10 : 0) + terms.reduce((n, w) => n + (low.split(w).length - 1), 0), snip });
   }
-  hits.sort((a, b) => b.score - a.score);
+  hits.sort((a, b) => b.score - a.score); shown = hits.slice(0, 30); selected = -1;
   box.innerHTML = "<h2>" + hits.length + " result" + (hits.length === 1 ? "" : "s") + " for &ldquo;" + esc(q) + "&rdquo;</h2>" +
-    hits.slice(0, 30).map(h => '<a href="#/' + h.d.id + '"><b>' + esc(h.d.title) + "</b><small>" + h.d.group + "</small><small>&hellip;" + h.snip + "&hellip;</small></a>").join("");
-  box.classList.add("on"); $("#pages").style.display = "none";
+    shown.map(h => '<a href="#/' + h.d.id + '"><b>' + esc(h.d.title) + "</b><small>" + h.d.group + "</small><small>&hellip;" + h.snip + "&hellip;</small></a>").join("");
+  box.classList.add("on"); $("#pages").style.display = "none"; $("#pager").style.display = "none"; $("#toc").innerHTML = "";
 }
 $("#q").addEventListener("input", e => search(e.target.value));
+$("#q").addEventListener("keydown", e => {                // arrow keys walk the results, Enter opens one
+  const links = [...document.querySelectorAll("#results a")];
+  if (!links.length || !["ArrowDown", "ArrowUp", "Enter"].includes(e.key)) return;
+  e.preventDefault();
+  if (e.key === "Enter") { (links[selected] || links[0]).click(); return; }
+  selected = Math.max(0, Math.min(links.length - 1, selected + (e.key === "ArrowDown" ? 1 : -1)));
+  links.forEach((a, i) => a.classList.toggle("sel", i === selected)); links[selected].scrollIntoView({ block: "nearest" });
+});
 addEventListener("keydown", e => {
   if (e.key === "/" && document.activeElement.tagName !== "INPUT") { e.preventDefault(); $("#q").focus(); }
   if (e.key === "Escape") { $("#q").value = ""; show(); $("#q").blur(); }

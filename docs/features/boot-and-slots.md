@@ -1,8 +1,6 @@
 # Boot, A/B slots and boot assessment
 
-**Status:** built; tested in QEMU on 1.0.0 images (2026-11-25): installed boot, blessing, an update booted from the spare slot and
-marked good, a one-shot rollback with `slot boot a --once`; and, on 2026-11-26, the fall-back after a broken update (three failed tries, then the old
-system, marked good; [updates](updates.md)). Not tested on real hardware.
+The system lives in one of two root slots. An update is written to the other slot and tried at the next restart; a boot only counts as good once the desktop is up, and a slot that does not start is given up on.
 
 ## Model
 
@@ -41,3 +39,7 @@ Assessment is **good** after a blessed boot and **pending** while a counter is o
 
 No recovery entry (the recovery partition is reserved and empty). Nothing in the image reboots a hung initrd; a power cycle or
 hardware watchdog is needed.
+
+## Tested
+
+Tested in QEMU on 1.0.0 images (2026-11-25): installed boot, blessing, an update booted from the spare slot and marked good, a one-shot rollback with `slot boot a --once`; and, on 2026-11-26, the fall-back after a broken update (three failed tries, then the old system, marked good; [updates](updates.md)). Not tested on real hardware.

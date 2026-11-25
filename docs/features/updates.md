@@ -1,8 +1,6 @@
 # Updates (OTA)
 
-**Status:** partly built. `foundation update install` was run on a booted system in QEMU (2026-11-25): written into the spare slot, booted,
-marked good, rolled back by hand, same version refused. Older versions are refused (unit-tested). Not tested: an interrupted
-install, a signed archive on a real boot, the GitHub feed, the update timer. The fallback after a broken update was tested in QEMU (see the end of this page).
+An update replaces the whole system image. `foundation update install` writes it into the spare slot, the next restart tries it, and if it does not start properly the old system comes back. Applications and your data are not touched.
 
 ## Install
 
@@ -95,3 +93,7 @@ blessed and later hangs (the watchdog restarts it, nothing rolls it back).
 ## Not built
 
 Delta updates, `ota.channel`, a recovery system for both slots failing, GNOME Software integration. Hosting: [ota-hosting](../ota-hosting.md).
+
+## Tested
+
+`foundation update install` was run on a booted system in QEMU (2026-11-25): written into the spare slot, booted, marked good, rolled back by hand, same version refused. Older versions are refused (unit-tested). Not tested: an interrupted install, a signed archive on a real boot, the GitHub feed, the update timer. The fallback after a broken update was tested in QEMU (see the end of this page).

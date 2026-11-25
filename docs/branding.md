@@ -1,54 +1,71 @@
 # Ersa branding sources
 
-The Plymouth theme sources are packaged by `packages/ersa-boot-splash/ersa-boot-splash.spec`; the corresponding source is in `~/Dev/eap/ersa-packages/ersa-boot-splash/` (local version 0.1.0). The theme was copied on 2026-11-03 from this user's installed `/usr/share/plymouth/themes/ersa/`. EAP uses a separate Yocto PSplash asset; no Yocto recipe or binary package is imported here.
+## Logo sources
 
-The theme has a script, progress-bar images, and an Ersa mark. Its Arch PKGBUILD declares `license=('unknown')`, and EAP's boot splash document says the artwork license has not been declared. The user authorized reuse for this ECP workspace. Confirm the artwork license before publishing redistributed ECP images or RPMs. The Plymouth program and plugin remain distribution packages.
+`branding/ersa-mark-light.svg` (dark mark, for light backgrounds) and `branding/ersa-mark-dark.svg` (light mark, for dark
+backgrounds) are the only logo sources. `scripts/build-branding` renders them, and the wallpapers
+(`branding/wallpaper-{light,dark}.svg`, 3840x2160), with `rsvg-convert` into `mkosi.branding/` (not committed), which mkosi
+overlays on the image. `scripts/build-splash-package` renders the Plymouth PNGs (1x and 2x), because Plymouth cannot load SVG.
 
-The `ersa-boot-splash` RPM is included in the root image and default initrd. Mkosi supplies the `Theme=ersa` Plymouth selection in both images. A VM graphical boot is still needed to confirm the theme appears, scales correctly, and handles a failed boot or password prompt. Plymouth's service-start log alone does not prove that a visible splash was rendered; if the guest display stays blank, investigate the virtual display/console and graphical target separately.
+## What GNOME reads
 
-## Light and dark boot splash
-
-The package carries two Plymouth themes: `ersa` (light, the default) and `ersa-dark` (dark background, the light mark from `branding/ersa-mark-dark.svg`, `fill-dark.png`/`track-dark.png`). `ersa.script` and `ersa-dark.script` are identical except for the block between `# THEME VARIABLES` and `# END THEME VARIABLES`; `foundation/tests/test_splash.py` fails if they drift. The choice is **not in the kernel image** (a signed image cannot be edited, and Secure Boot needs the signature). It is a UEFI variable plus a configuration line:
-
-- **`ErsaSplashDark-<GUID>`**, a few bytes of non-volatile UEFI memory: present means dark, absent means light. The initrd has a unit, `ersa-splash-dark.service` (`mkosi.initrd.extra/`), that runs before `plymouth-start.service` and only when the variable exists; it makes the initrd's `/etc/plymouth/plymouthd.conf` a link to `plymouthd-dark.conf` (`Theme=ersa-dark`), with one `systemd-tmpfiles` line. Without the variable nothing runs and Plymouth uses the default `Theme=ersa`. The initrd already carries both themes (the whole package).
-- **`/etc/plymouth/plymouthd.conf`** of the installed system: foundation edits its `Theme=` line, for the splash shown at shutdown and restart, when the initrd is gone.
-
-- `foundation splash light|dark` (D-Bus `Boot.SetSplash`, polkit action `org.ersa.foundation.splash`, allowed without a password for the active local user) creates or removes the variable and edits that line. It prints what changed; on a computer that did not start with UEFI it writes the file and says the boot splash cannot follow the choice.
-- `foundation-splash-sync.service` (a systemd user service, enabled by preset) follows the desktop: it reads `org.gnome.desktop.interface color-scheme` (`prefer-dark` is dark, anything else light), calls `SetSplash` once at login and again only when the value changes.
-- An update changes nothing about it: the variable and `/etc` belong to the machine, not to an image or a slot (the old command-line token that `update_cmdline` carried over is gone).
-
-Limits: the splash changes at the next boot. **Tested on real UEFI firmware (OVMF in QEMU, `scripts/qemu-uefi-test`, two boots of the root image sharing one variable store):** the variable is created with the attributes `0x7` and the value `01`; efivarfs marks it immutable (the code clears that before deleting); it **survives a power cycle**; a unit conditioned on its path with `ConditionPathExists` is skipped when it is absent and runs when it is present (that is how the initrd's `ersa-splash-dark.service` is conditioned); the tmpfiles line links `plymouthd.conf` to the dark configuration; and `light` removes the variable again. **Not tested on a booted image:** the initrd unit itself (the image used predates it: it has to be rebuilt), that `systemd-tmpfiles` is present in the initrd, that the dark theme then actually shows, and any real firmware (OVMF is a real UEFI implementation but not a laptop's). Also tested: the unit tests (the configuration edits, no UEFI, idempotence, that the initrd files agree with the backend), the daemon and the CLI on a private bus. Not tested: the user service against a real GNOME session and system bus, and polkit with the real policy.
-
-## Logo variants and where they appear
-
-`branding/ersa-mark-light.svg` (dark mark, for light backgrounds) and `branding/ersa-mark-dark.svg` (light mark, for dark backgrounds) are the only logo sources. `scripts/build-branding` renders them with `rsvg-convert` into `mkosi.branding/` (not committed), which mkosi overlays on the image. `scripts/build-splash-package` renders the Plymouth logo PNGs (1x and 2x) from the light SVG (the `ersa-dark` ones from the dark SVG), because Plymouth cannot load SVG.
-
-GNOME's own code (read from `GNOME/gnome-control-center` and `GNOME/gnome-initial-setup` on GitHub, which is what Tumbleweed ships) decides what shows where:
-
-| Where | How GNOME picks it | What ECP provides |
+| Where | How GNOME picks it | What we provide |
 | --- | --- | --- |
-| Settings, About: logo | `LOGO=` in `os-release`, looked up in the icon theme as `<LOGO>-text-dark`, `<LOGO>-text`, `<LOGO>-dark`, then `<LOGO>` (the dark names first in the dark style) | `LOGO="ersa-logo"`; icons `ersa-logo` (light mark) and `ersa-logo-dark` (dark mark) in `hicolor`, as SVG and PNG |
-| Settings, About: OS name | `PRETTY_NAME`; `IMAGE_VERSION` is shown separately | `PRETTY_NAME="Ersa Compute Platform"`; mkosi adds `IMAGE_VERSION` |
-| Initial Setup welcome page | `PRETTY_NAME` | the same |
-| GDM login screen logo | the `org.gnome.login-screen logo` setting | `10_ersa-branding.gschema.override` pointing at `/usr/share/pixmaps/ersa-gdm-logo.png` (light mark, for the dark GDM style), compiled by `mkosi.postinst.chroot` |
+| Settings, About: logo | `LOGO=` in `os-release`, looked up as `<LOGO>-text-dark`, `<LOGO>-text`, `<LOGO>-dark`, `<LOGO>` (dark names first in the dark style) | `LOGO="ersa-logo"`; icons `ersa-logo` and `ersa-logo-dark` in `hicolor` (SVG and PNG) |
+| Settings, About: name | `PRETTY_NAME`; `IMAGE_VERSION` separately | `PRETTY_NAME="Ersa Compute Platform"`; mkosi adds `IMAGE_VERSION` |
+| Initial Setup welcome | `PRETTY_NAME` | the same |
+| GDM logo | setting `org.gnome.login-screen logo` | `10_ersa-branding.gschema.override` pointing at `/usr/share/pixmaps/ersa-gdm-logo.png` (light mark), compiled by `mkosi.postinst.chroot` |
+| Wallpaper | gschema default and `gnome-background-properties` | `90_ersa-wallpaper.gschema.override`; files in `/usr/share/backgrounds/ersa/`, listed by `ersa.xml` |
 
-`mkosi.extra/usr/lib/os-release` overrides openSUSE's file. It keeps `ID="opensuse-tumbleweed"` and `ID_LIKE="opensuse suse"` for tool compatibility, has no `VERSION_ID` (Tumbleweed has none that is stable), and records the base in `ECP_BASE`, which `foundation status` prints. No Ersa home or bug-report URL exists yet, so none is set. The `-upstream` (neutral) openSUSE branding packages are installed for GDM and Plymouth instead of the openSUSE-branded ones.
+Read from `gnome-control-center` and `gnome-initial-setup` upstream sources, not from a running system.
 
-Wallpaper: `branding/wallpaper-light.svg` and `wallpaper-dark.svg` (the mark on a soft gradient) are rendered at 3840x2160 by `scripts/build-branding` into `/usr/share/backgrounds/ersa/`, listed for Settings through `gnome-background-properties/ersa.xml`, and set as the default (light, dark and lock screen) by `90_ersa-wallpaper.gschema.override`. Not yet seen in a booted image.
+`mkosi.extra/usr/lib/os-release` overrides openSUSE's. It keeps `ID="opensuse-tumbleweed"` and `ID_LIKE="opensuse suse"` for
+tool compatibility, has no `VERSION_ID` (Tumbleweed has no stable one), and records the base in `ECP_BASE`, which
+`foundation status` prints. No Ersa home or bug-report URL exists yet. The `-upstream` (neutral) openSUSE branding packages
+are installed for GDM and Plymouth.
 
-GNOME's own wallpapers (`gnome-backgrounds`) are installed beside them.
+## Boot splash
 
-Not yet replaced: other openSUSE logo files, and `/etc/os-release` compatibility files. None of this has been visually verified in a booted image. This replaces the earlier Rocky scheme, which patched `fedora-logo*` file names.
+The theme is packaged by `packages/ersa-boot-splash/ersa-boot-splash.spec`, installed in the root image and the initrd, and
+selected with `Theme=ersa` in both. It was copied on 2026-11-03 from an earlier installed `ersa` theme; its original packaging
+declared the licence `unknown`, so confirm it before publishing images or RPMs. The Plymouth program and plugin are
+distribution packages.
+
+The package carries two themes: `ersa` (light, default) and `ersa-dark` (dark background, light mark, `fill-dark.png` and
+`track-dark.png`). The two scripts differ only between `# THEME VARIABLES` and `# END THEME VARIABLES`;
+`foundation/tests/test_splash.py` fails if they drift.
+
+The choice is not in the kernel image (a signed image cannot be edited, and Secure Boot needs the signature):
+
+- **UEFI variable `ErsaSplashDark-<GUID>`:** present means dark. The initrd unit `ersa-splash-dark.service`
+  (`mkosi.initrd.extra/`) runs before `plymouth-start.service`, only when the variable exists, and links the initrd's
+  `/etc/plymouth/plymouthd.conf` to `plymouthd-dark.conf` through one tmpfiles line.
+- **`/etc/plymouth/plymouthd.conf`** of the installed system: foundation edits its `Theme=` line, for the shutdown and restart
+  splash when the initrd is gone.
+
+`foundation splash light|dark` (D-Bus `Boot.SetSplash`, polkit action `org.ersa.foundation.splash`, allowed without a password
+for the active local user) creates or removes the variable and edits the line. On a computer that did not start with UEFI it
+writes the file and says the boot splash cannot follow. `foundation-splash-sync.service` (user service, enabled by preset)
+follows `org.gnome.desktop.interface color-scheme` (`prefer-dark` is dark) at login and when it changes. An update changes
+nothing: the variable and `/etc` belong to the machine, not to a slot. The splash changes at the next boot.
+
+On OVMF in QEMU (two boots sharing one variable store) the variable was created (attributes `0x7`, value `01`), survived a
+power cycle, and a `ConditionPathExists` unit was skipped when it was absent and ran when present; the tmpfiles line linked
+the dark configuration and `light` removed the variable (efivarfs marks it immutable; the code clears that first). Not tested:
+the initrd unit itself (the tested image predates it), `systemd-tmpfiles` in the initrd, the dark theme showing, real firmware,
+the user service against a real GNOME session, polkit with the real policy, and a visible splash (Plymouth's log alone does not
+prove one rendered).
 
 ## Fonts
 
-Inter is the interface font on the whole system (`mkosi.extra/usr/share/glib-2.0/schemas/20_ersa-fonts.gschema.override` sets the
-GNOME interface, document and title bar fonts; the package is `inter-fonts`). Monospace is IBM Plex Mono (`ibm-plex-mono-fonts`; JetBrains Mono is not in Tumbleweed's main repository), with Adwaita Mono kept as a fallback. GNOME's own default,
-Adwaita Sans, is a close relative of Inter. Applications that name a font themselves, and scripts Inter does not cover, still use the
-Noto fonts through fontconfig. Not yet seen on a booted image.
+Inter (`inter-fonts`) is the interface, document and title-bar font, set by `20_ersa-fonts.gschema.override`. Monospace is IBM
+Plex Mono (`ibm-plex-mono-fonts`; JetBrains Mono is not in Tumbleweed's main repository) with Adwaita Mono as fallback.
+Applications that name a font and scripts Inter lacks use Noto through fontconfig ([multimedia and fonts](features/multimedia-and-fonts.md)).
 
-The "ersa.compute" wordmark is Inter Tight ("ersa" bold, ".compute" light). Inter Tight is not packaged in Tumbleweed and a logo should
-not depend on installed fonts, so the letters are converted to outlines by `scripts/make-wordmark` into
-`foundation/foundation_deck/ersa-wordmark-{light,dark}.svg`. Inter Tight is under the SIL Open Font License 1.1
-(`docs/licenses/INTER-TIGHT-OFL.txt`).
+The "ersa.compute" wordmark is Inter Tight ("ersa" bold, ".compute" light), converted to outlines by `scripts/make-wordmark`
+into `foundation/foundation_deck/ersa-wordmark-{light,dark}.svg`, since Inter Tight is not packaged and a logo should not
+depend on installed fonts. Inter Tight is under the SIL OFL 1.1 (`docs/licenses/INTER-TIGHT-OFL.txt`).
 
+## Tested
+
+The assets, scripts and package exist, and the unit tests check the splash configuration and backend, the daemon and the CLI on a private bus. The UEFI variable behind the dark splash was tested on OVMF in QEMU (`scripts/qemu-uefi-test`). Nothing here has been seen on a booted desktop, and the initrd unit has not been booted. For the overview see [branding](features/branding.md).

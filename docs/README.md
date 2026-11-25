@@ -5,8 +5,8 @@ in one of two A/B slots; updates write the other slot and fall back if it does n
 the system; `foundation` (command line) and the installer are its clients. `scripts/build-wiki` turns these pages into one
 HTML file (`docs/wiki/index.html`).
 
-Status words: **tested** means a run proved it and the page says which (all runs so far are QEMU); **built** means written
-but not run; nothing is called working because it was designed to.
+Pages say what was tested and how; all runs so far are in QEMU, none on real hardware. Nothing is called working because it was
+designed to.
 
 | I want to... | Read |
 | --- | --- |

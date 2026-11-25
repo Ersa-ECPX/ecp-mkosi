@@ -1,58 +1,53 @@
 # Provisioning and device management
 
-Status: the provisioning *state* is implemented (see `foundation/README.md#provisioning`). Everything
-about a management server and a custom first-boot application is a proposal.
+## Two problems
 
-## Two different problems
+1. **First-boot front end:** the wizard a person sees (language, keyboard, network, account). Today this is GNOME Initial Setup.
+2. **Management backend (MDM):** a server and a device agent that enrol the device, apply policy, deploy applications, control
+   the update channel and report inventory. Not built, no server chosen.
 
-1. **First-boot front end**: the wizard a person sees (language, keyboard, network, account, and
-   possibly enrolment). Today GNOME Initial Setup.
-2. **Management backend (MDM)**: a server and a device-side agent that enrol the device, apply
-   policy and settings, deploy applications, control the update channel, report inventory and
-   compliance, and act remotely.
+They meet at one fact: this device is provisioned.
 
-They meet at one fact: *this device is provisioned*. Keep them separate; share the device side.
+## What is built
 
-## The device side (built)
+`system.provisioned` (and `system.provisioned_at`) is state kept by `foundationd` in `/var/lib/foundation/state.json`. It
+latches one way and creates the marker `/var/lib/foundation/provisioned`, which first-boot units use in
+`ConditionPathExists=!`. It is set in two ways:
 
-`foundationd` is the on-device management plane: one D-Bus API, polkit on every change, jobs. A
-management agent is **one more client of it**. It talks to the remote server and applies what it is
-told through the same calls a person uses (`Config`, `Apps`, `Updates` later, `Boot`), so there is a
-single authorized, auditable path for every change and no second tool that edits the system.
+- `Manager.CheckProvisioning` (no authorization, the caller supplies no evidence): looks for the `~/.config/gnome-initial-setup-done`
+  file of an administrator (member of `wheel`, uid at least 1000, regular file owned by that user, not a symlink). A user path
+  unit, `foundation-provisioning.path`, calls it after the account's first login.
+- `Manager.CompleteProvisioning` (polkit `provision`): for any other front end. A second call returns `AlreadyProvisioned`.
 
-State that already exists: `system.provisioned` (one-way latch), `ota.*` and other settings with a
-schema (stored; the agent would set `ota.url` and the channel), and a job log.
+A factory reset that wipes `/etc` and `/var` returns the machine to unprovisioned (not implemented as a command). Identity is
+created on first boot and never baked into the image. `foundation deploy install --preseed FILE` can seed settings, language,
+time zone and host name on the target; it does not mark the machine provisioned.
 
-Needed when an agent exists: a device identity created on first boot (never baked into the image),
-enrolment secrets held as systemd credentials (not settings), and a place to record who manages the
-device. These are not built.
+## A management agent
 
-## First-boot front end: options
+An agent would be one more client of `foundationd`, using the same calls a person uses (`Config`, `Apps`, `Updates`, `Boot`), so
+there is a single authorized, auditable path for every change. Still needed: a device identity made on first boot, enrolment
+secrets as systemd credentials, and a record of who manages the device. None of it exists.
 
-| Option | What it takes | Good for | Cost |
-| --- | --- | --- | --- |
-| **Upstream GNOME Initial Setup, unchanged** (today) | nothing | consumer setup; enrolment after the account exists | pages can only be skipped or reordered; no place for an enrolment page |
-| **Upstream plus our own second-stage app** | a small libadwaita app, run after setup while `system.provisioned` is false | enrolment after the local account exists | two wizards |
-| **Our own first-boot app** replacing Initial Setup | a libadwaita app that does language, keyboard, network, enrolment and account creation (through AccountsService) and then calls `CompleteProvisioning` | enrolment *before* the account (zero-touch, directory sign-in); one consistent flow; shares UI code with the planned installer | we own every page, translation and accessibility fix |
-| **Fork GNOME Initial Setup** | a patched copy kept in step with every GNOME release | one extra page in the GNOME flow | rebasing every six months on a rolling base; the extra page is a small delta for a large burden |
+## First-boot front end options
 
-If a page needs adding only, carry it as a patch series in the RPM (reviewed at each release), not a
-fork. If enrolment must come before the account, write our own first-boot app: it is less work than
-maintaining a fork, and it is the same toolkit as the installer.
+| Option | Good for | Cost |
+| --- | --- | --- |
+| Upstream GNOME Initial Setup (today) | consumer setup | pages can only be skipped or reordered; no enrolment page |
+| Plus our own second-stage app | enrolment after the account exists | two wizards |
+| Our own first-boot app | enrolment before the account; one flow shared with the installer | we own every page, translation and accessibility fix |
+| Fork Initial Setup | one extra page | rebasing every six months |
 
-## The server
+If only a page is needed, carry a patch series in the RPM rather than a fork. If enrolment must come before the account, write
+our own app.
 
-Not decided, and not needed yet. Questions that decide it: who manages the devices (a company, a
-school, a family, a developer's own fleet), which controls matter (settings and policy, application
-deployment, the update channel, remote wipe, compliance and inventory, sign-in through a directory),
-and whether devices are reached directly or through a relay. Existing open-source and commercial
-tools cover parts of this (inventory and queries, configuration management, OTA fleets, identity);
-none has been evaluated for this project. Build a server only for the part nothing existing covers.
+## Order
 
-## Suggested order
+1. Done: the provisioning state.
+2. Prove the update path and the installer.
+3. Pick the first-boot front end from the enrolment requirement.
+4. Design identity and the enrolment protocol together with the server choice, then write the agent as a `foundationd` client.
 
-1. (done) The provisioning state and its two ways to latch it.
-2. Prove the update path (OTA) and the installer; both depend on the slot layout.
-3. Decide the first-boot front end from the enrolment requirement above.
-4. Design the device identity and the enrolment protocol with the server choice, then write the agent
-   as a `foundationd` client.
+## Tested
+
+The provisioning state (a one-way latch, evidence check, explicit call) is built and unit-tested with fake accounts and a private bus; not run on a booted image. A management server, a device agent and a custom first-boot application are proposals only.

@@ -1,55 +1,100 @@
 # System extensions
 
-**Status:** built; tested with real RPMs and fake base-image queries, and in QEMU for merging. Compat merging on a
-booted image under enforcing SELinux has not been run.
-
 ## What it is
 
-A **system extension** (sysext) is a directory or image whose `/usr` and `/opt` are overlaid on the running system
-without changing the read-only root. Three things in this system use them: the
-[installer](live-medium.md) (on its medium only), [bundles](repositories-and-bundles.md) (packages from repositories),
-and **compat RPMs** (a single RPM file from outside the base, such as a vendor's browser).
+A system extension (sysext) overlays its `/usr` and `/opt` on the running system without changing the read-only root.
+Three things use them: the [installer](live-medium.md) (on its medium only), [bundles](repositories-and-bundles.md)
+(packages from repositories) and **compat RPMs** (a single RPM file from outside the base, such as a vendor's browser).
 
 ## Using it
 
 ```
-foundation ext list [--kind sysext|confext]     # every extension image, of any origin; which are merged and which managed
-foundation ext merge | unmerge | refresh        # overlay, remove the overlay, or re-merge to pick up changes
+foundation ext list [--kind sysext|confext]     # every extension image; which are merged, which managed
+foundation ext merge | unmerge | refresh
 
 foundation compat inspect foo.rpm               # check an RPM against this system, change nothing
-foundation compat install foo.rpm               # install it as an extension
-foundation compat list                          # installed extensions: enabled or disabled, merged or not
+foundation compat install foo.rpm
+foundation compat list                          # enabled or disabled, merged or not
 foundation compat remove foo
 foundation compat revalidate                    # after an OS update: recheck every extension
 ```
 
-## Compat RPMs
+## How a compat RPM is installed
 
-`compat install foo.rpm` unpacks the payload into `/var/lib/extensions/<name>` (no scriptlets are run), writes an
-`extension-release` file (`ID=` from the base's `os-release`, plus `VERSION_ID` or `SYSEXT_LEVEL` if the base has them,
-and `ARCHITECTURE=`), labels the files for SELinux, and merges. What is checked first (`compat inspect`):
+`compat install` unpacks the payload into `/var/lib/extensions/<name>` with a strict reader of our own (not `cpio`, so a
+crafted RPM cannot write outside its directory), writes an `extension-release` file (`ID` from the base's `os-release`,
+`VERSION_ID` or `SYSEXT_LEVEL` if the base has them, `ARCHITECTURE`), labels the files for SELinux and merges. A failed merge
+removes the extension again. `compat inspect` checks first:
 
-- every requirement is looked up in the base's RPM database **by name** (rich dependencies such as `(a or b)` are
-  evaluated; version constraints are not compared);
-- every ELF file's needed libraries must be in the base's linker cache or in the package; libraries that only plugins
-  need are notes, not problems;
+- every requirement is looked up in the base's RPM database by name (rich dependencies such as `(a or b)` are evaluated;
+  version constraints are not compared);
+- every ELF file's needed libraries must be in the base's linker cache or in the package (libraries only plugins need are
+  notes);
 - files that would replace files of the base are conflicts.
 
-**Problems stop an install** (unless forced); **notes do not**: files outside `/usr`, `/opt` and `/etc` are dropped and listed (`/etc` and `/var` are handled as described below), and
-scriptlets are never run. The payload is read by a strict reader of our own, not by `cpio`, so a crafted RPM cannot write
-outside its directory. A failed merge removes the extension again.
+Problems stop an install unless forced (`--force`); notes do not.
 
-## After an OS update
+After an OS update, `compat revalidate` disables an extension that no longer fits (moved to
+`/var/lib/foundation/compat/disabled`, never deleted) and re-enables it if a later base fits. Bookkeeping is
+`/var/lib/foundation/compat/<name>.json`.
 
-`compat revalidate` rechecks every extension against the new base. One that no longer fits is **disabled** (moved to
-`/var/lib/foundation/compat/disabled`, never deleted) and re-enabled if a later base fits again. Bookkeeping for each
-extension is `/var/lib/foundation/compat/<name>.json`.
+**Labels.** An overlay shows the extension's files with the extension's labels, so files labelled for
+`/var/lib/extensions` would make `/usr` unreadable to confined services. Every file is labelled for the path it has once
+merged ([SELinux](selinux.md)).
 
-## Why labels matter
+## Files outside `/usr` and `/opt`
 
-An overlay shows the extension's directories on top of the real ones, with the extension's labels. Files created under
-`/var/lib/extensions` would carry that path's label and make `/usr` unreadable to confined services, so every file is
-labelled for the path it will have once merged ([SELinux](selinux.md)).
+- **`/etc` files become defaults.** They are kept in the extension (`usr/share/foundation/etc/<name>/`) and a `tmpfiles.d`
+  file makes `systemd-tmpfiles` copy each one into the real `/etc` only where nothing exists yet, after every merge and at
+  boot. Files you edited or the image ships are never replaced; a newer package default does not replace an old copy.
+  Removing the extension removes the copies nobody changed. A configuration extension (confext) was built first and dropped:
+  the kernel refuses an overlay as its upper layer, and our `/etc` is an overlay.
+- **`/var` cannot be merged.** The package's `/var` directories become `tmpfiles.d` lines (created at boot, as root); files
+  under `/var` are dropped and reported.
+- Anything else outside `/usr`, `/opt` and `/etc` is dropped and listed.
+
+## Scriptlets
+
+Install scripts are never run: a package script running as root on an immutable system is what extensions avoid. foundation
+reads what each install script does and reports what is missing ("Not done: ..." after install, `ListBundles` `notes`,
+recomputed when a bundle is rebuilt). Removal scripts are ignored.
+
+| The script... | Here |
+| --- | --- |
+| runs `ldconfig` | nothing needed; the cache is refreshed on merge |
+| creates system users or groups (`useradd -r`, `groupadd -r`, `usermod -aG`, `sysusers.d`) | done: translated to `usr/lib/sysusers.d/foundation-<name>.conf`, applied after every merge by `ersa-sysusers-extensions.service` |
+| creates a home directory (`useradd -m`) | done: a `tmpfiles.d` line |
+| creates a user it cannot translate (regular user, shared id, unknown option) | not done; reported |
+| presets or enables services | done: the named units are preset after the merge; removing the extension disables them |
+| starts services | not done; reported |
+| compiles settings schemas | done, see below |
+| updates icon caches | done differently: icon directories are dated at build time so GTK and Qt read them instead of the stale cache |
+| rebuilds other caches (MIME, fonts, certificates, application list), alternatives, anything else | not done; reported. A new file type or font may not be recognised until the next start |
+
+The descriptions come from the script text, so an unusual script may show as "runs other commands".
+`systemd-sysusers.service` itself is not ordered after `systemd-sysext.service`: that made an ordering cycle with the `/boot`
+mount and udev that stalled boots for 90 seconds, hence the separate service.
+
+## Generated files after a merge
+
+Some files only work after a tool processed them, and the base image's cache cannot change. After every merge and at boot,
+foundation reads the jobs in `/usr/lib/foundation/post-merge.d/*.json` of the image (a bundle cannot add one), gathers the
+matching files from every enabled extension and runs the command into `/var/lib/foundation/generated/<name>/`. A failed job
+is logged and its output removed.
+
+```json
+{"name": "gsettings", "collect": ["usr/share/glib-2.0/schemas/*.gschema.xml"], "run": ["glib-compile-schemas", "{out}"]}
+```
+
+The one job compiles settings schemas; without it a GLib or GNOME application from a bundle stops with "schema not
+installed". The image sets `GSETTINGS_SCHEMA_DIR=/var/lib/foundation/generated/gsettings`
+(`usr/lib/environment.d/60-foundation-generated.conf`). Another processed file type is one more JSON file.
+
+## Tested and not tested
+
+Tested: gathering, replacing, removing, failing safely, and a real `glib-compile-schemas` result read by a second process.
+Not tested on a booted image: that the session receives the environment setting, and a real GNOME application from a bundle
+using it.
 
 ## Limits
 
@@ -59,72 +104,6 @@ labelled for the path it will have once merged ([SELinux](selinux.md)).
 
 See also: [repositories and bundles](repositories-and-bundles.md), [docs/foundationd.md](../foundationd.md).
 
-## Files in `/etc` and `/var`
+## Tested
 
-A sysext can only overlay `/usr` and `/opt`, so a package's other files need their own handling (compat RPMs and
-[bundles](repositories-and-bundles.md) alike):
-
-- **`/etc` files become defaults.** They are kept inside the extension (`usr/share/foundation/etc/<name>/`) and a `tmpfiles.d`
-  file makes `systemd-tmpfiles` copy each one into the real, writable `/etc` **only where nothing exists yet**. So a file you
-  edited, or one the image ships, is never replaced, and what you change afterwards stays yours. The copy happens after every
-  merge and at boot. Removing the extension removes the copies nobody changed and leaves the ones you edited.
-- **Why not a configuration extension (confext)?** A confext would merge the files over `/etc`, but it needs the layer below
-  it writable, and the kernel refuses an overlay as that layer (`filesystem on ... not supported as upperdir`; our `/etc` is
-  an overlay). It was built first and replaced after that test.
-- **A newer default does not replace an old copy.** If a package updates its default file, the copy already in `/etc`
-  keeps the old content (the same trade-off as `.rpmnew` files, without the `.rpmnew`).
-- **`/var` cannot be merged.** There is no "varext", and `/var` is machine state. The package's `/var` directories become
-  `tmpfiles.d` lines in the extension (created at boot, as root); files under `/var` are dropped and reported.
-
-## Scriptlets
-
-An RPM's install scripts (scriptlets) are **never run**: a script from a package, running as root on an immutable system,
-is what an extension is there to avoid. Instead foundation reads what each script does and tells you what is missing:
-
-| The script... | What happens here |
-| --- | --- |
-| runs `ldconfig` | nothing needed; the library cache is refreshed when the extension is merged |
-| creates users or groups (`useradd -r`, `groupadd -r`, `usermod -aG`, or a `sysusers.d` file) | **done**: translated into `usr/lib/sysusers.d/foundation-<name>.conf` inside the extension, and `systemd-sysusers` applies it after every merge and at boot |
-| creates a home directory (`useradd -m`) | **done**: a `tmpfiles.d` line creates it, owned by that user, since `sysusers.d` cannot |
-| creates a user it cannot translate (a regular user, a shared id, an option foundation does not know) | **not done**; you are told |
-| presets or enables services (`systemctl preset foo.service`, `%service_add_post`) | **done**: after the merge foundation presets the named units, so the preset files decide, exactly as the script did. Removing the extension disables them again; a rebuild for a new image keeps them enabled |
-| starts services, or anything else about them | **not done**; you are told (start one with `systemctl`) |
-| compiles settings schemas (`glib-compile-schemas`) | **done**, see "After a merge" below |
-| updates icon caches | **done** differently: the extension's icon directories are dated at build time, so GTK and Qt ignore the base image's out-of-date cache and read the directories |
-| rebuilds other caches (application list, MIME types, fonts, certificates) | **not done**; you are told. A new file type or font may not be recognised until the next start; applications still run |
-| sets up alternatives, or anything else | **not done**; you are told |
-
-Only the scripts that run when a package is **installed** are read; the ones that run on removal are ignored. Only system
-accounts are translated (`sysusers.d` cannot make a regular user), and only commands whose every option is understood.
-
-The notes show after `foundation compat install` and bundle installs ("Not done: ..."), are kept with the bundle (`ListBundles` `notes`),
-and are recomputed whenever the bundle is rebuilt for a new image. They come from the text of the scripts, so an unusual
-script may be described as "runs other commands". `systemd-tmpfiles --create` also runs after a merge, for the `/var`
-directories above.
-
-Accounts from an extension are created by `ersa-sysusers-extensions.service`, which runs `systemd-sysusers` again after the merge.
-(Ordering `systemd-sysusers.service` itself after `systemd-sysext.service` makes an ordering cycle with the `/boot` mount and udev
-that stalled boots for 90 seconds.)
-
-Not yet checked on a booted image: whether a real GNOME application from a bundle works without its schema cache rebuilt.
-
-## After a merge: generated files
-
-Some files only work once a tool has processed them, and the cache in the base image cannot be changed. After every merge
-(and at boot) foundation reads the jobs in `/usr/lib/foundation/post-merge.d/*.json` of the **image** (a bundle cannot add
-one), gathers the matching files from every enabled extension, and runs the job's command into
-`/var/lib/foundation/generated/<name>/`. A job that fails is logged and its output removed, never left half made.
-
-```json
-{"name": "gsettings", "collect": ["usr/share/glib-2.0/schemas/*.gschema.xml"], "run": ["glib-compile-schemas", "{out}"]}
-```
-
-The first job compiles settings schemas. Without it an application from a bundle that has its own settings (GNOME, GTK and
-any GLib application) stops at launch with "schema not installed". The image sets
-`GSETTINGS_SCHEMA_DIR=/var/lib/foundation/generated/gsettings` (`usr/lib/environment.d/60-foundation-generated.conf`);
-GLib reads that directory in addition to the system schemas. Nothing is specific to one desktop: supporting another
-(for KDE, or anything else that needs a processed file) is one more JSON file plus, if it needs one, an environment line.
-
-Tested: gathering, replacing, removing, failing safely, and a real `glib-compile-schemas` result found next to the system's
-own schemas by a second process. Not tested on a booted image: whether the session actually receives the environment
-setting (it relies on systemd's `environment.d`), and a real bundle application using it.
+Tested with unit tests using real RPMs and fake base-image queries, and in QEMU for merging. Compat merging on a booted image under enforcing SELinux has not been run.

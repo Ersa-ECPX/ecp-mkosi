@@ -1,9 +1,5 @@
 # Deck
 
-**Status:** partly built; not tested on a booted system. The window runs against a real `foundationd` on a virtual display in the
-unit tests (`foundation/tests/test_deck.py`, 27 tests); nothing has driven it on an installed system with a polkit agent, and
-the job pages (install, add, remove) are covered only up to the dialogs.
-
 Deck (`ersa-deck`, package `foundation-deck`) is the graphical client for managing the system, laid out like a settings app:
 a sidebar of pages in groups (with a search field), one page at a time. At the foot of the sidebar a task panel shows what is
 running, with progress and Cancel, and what has just finished. A banner appears on every page while an update waits for a restart,
@@ -32,3 +28,7 @@ desktop's own appearance (GNOME Settings).
 
 Tests: `ECP_MKOSI_DIR=$PWD python3 -m unittest discover -s foundation/tests -p test_deck.py`; the window tests need
 `ERSA_GUI_TESTS=1` on a virtual display (see the top of that file).
+
+## Tested
+
+Not tested on a booted system. The window runs against a real `foundationd` on a virtual display in the unit tests (`foundation/tests/test_deck.py`, 27 tests); nothing has driven it on an installed system with a polkit agent, and the job pages (install, add, remove) are covered only up to the dialogs.
