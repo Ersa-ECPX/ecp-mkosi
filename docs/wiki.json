@@ -65,6 +65,10 @@
         },
         "docs/features/system-extensions.md",
         {
+          "path": "docs/features/deck.md",
+          "label": "Deck (management window)"
+        },
+        {
           "path": "docs/features/remote-access.md",
           "label": "Remote access (SSH)"
         },

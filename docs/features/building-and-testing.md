@@ -77,6 +77,11 @@ See also: [installer medium](live-medium.md), [developer guide](../../foundation
 
 ## Publishing the wiki (GitHub Pages)
 
+`.github/workflows/docs.yml` runs `scripts/build-wiki` whenever `docs/` changes on `main` and deploys the result with GitHub Pages
+(`https://ersa-ecpx.github.io/ecp-mkosi/`). **It has not run:** it needs Settings > Pages > Source "GitHub Actions" once, and the
+workflow pushed. The copy on the packages site (below) is rebuilt only when a release is published, so the two can differ until that
+copy is dropped.
+
 The wiki is published at **https://pkgs-compute.ersa.dev/wiki/**, as part of the packages site: the workflow in the `packages`
 repository clones this repository (and `foundation`, for its README) when a release is published and runs
 `scripts/build-wiki`. To look at it yourself, `scripts/build-wiki docs/wiki/index.html` writes `index.html`, `assets/` (the

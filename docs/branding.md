@@ -49,6 +49,6 @@ Noto fonts through fontconfig. Not yet seen on a booted image.
 
 The "ersa.compute" wordmark is Inter Tight ("ersa" bold, ".compute" light). Inter Tight is not packaged in Tumbleweed and a logo should
 not depend on installed fonts, so the letters are converted to outlines by `scripts/make-wordmark` into
-`foundation/foundation_updater/ersa-wordmark-{light,dark}.svg`. Inter Tight is under the SIL Open Font License 1.1
+`foundation/foundation_deck/ersa-wordmark-{light,dark}.svg`. Inter Tight is under the SIL Open Font License 1.1
 (`docs/licenses/INTER-TIGHT-OFL.txt`).
 

@@ -29,7 +29,8 @@ What each does today (the others are stored but nothing reads them yet):
 | `ota.channel` | `stable` | none yet |
 | `ota.auto_check` | true | `foundation-autoupdate.timer` checks the source about 10 minutes after start and every 6 hours (with a random delay) and a new version is announced |
 | `ota.auto_update` | false | the same service also downloads and installs the newer update (it starts at the next restart); setting it needs the administrator's password |
-| `system.developer_mode` | false | shown in `foundation status`; no developer feature exists yet |
+| `apps.default_apps` | `io.github.kolunmi.Bazaar` | Flatpak ids installed once when the computer is first online (the app store); empty for none |
+| `system.developer_mode` | false | shown in `foundation status`; allows installing an update without a signature (`foundation update install --unsigned`, Deck's "Install without checking the signature"); nothing else yet |
 
 ## Provisioning
 

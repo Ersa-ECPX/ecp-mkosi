@@ -1,52 +1,30 @@
 # Secure Boot
 
-The platform can sign systemd-boot and every kernel image (UKI) with its own key, so a computer that trusts that key boots
-them and refuses anything else.
+**Status:** partly built. Every image is signed by mkosi (`SecureBoot=yes`); the mkosi-built 1.0.0 kernel image carries a signature by
+"Ersa Compute Platform Secure Boot". Firmware enforcement was tested in QEMU (`scripts/qemu-secureboot-test`, 8/8, 2026-11-25),
+but with a throwaway key that re-signs the same kernel image, so the test covers the firmware chain, not mkosi's own signature
+or key handling. Not tested on any real computer, with TPM measurement, or with `foundation update install` of a signed image
+on a signed boot.
 
-## Every image is signed
+## Signing
 
-`mkosi.conf` sets `SecureBoot=yes`: systemd-boot and every kernel image (UKI) are signed with the platform's key in
-`secure-boot/ersa-secure-boot.{key,crt}` (git ignores the folder; back it up). A computer that does not use Secure Boot
-ignores the signatures, so the same image works everywhere; one that does use it can trust our certificate (below).
+systemd-boot and every kernel image (UKI) are signed with `secure-boot/ersa-secure-boot.{key,crt}` (git-ignored; back it up).
+A computer without Secure Boot ignores the signatures. This key is separate from the update-signing and package keys.
 
 ```
-scripts/make-secure-boot-key       # the real key, once. `scripts/build` makes a DEVELOPMENT key by itself if none exists
-scripts/build x86-64 --profile root
-scripts/release 0.2.0              # refuses to build without the real key (ECP_REQUIRE_SB_KEY=1)
+scripts/make-secure-boot-key         # the real key, once; scripts/build makes a DEVELOPMENT key if none exists
+scripts/release 0.2.0                # refuses the development key
 ```
-
-This is a different key from the update signing key (`scripts/make-image-signing-key`) and the package repository key.
-**mkosi's signing has not been run yet** (mkosi cannot run in the sessions that wrote it); the test below signs an existing
-image's boot files instead.
 
 ## Trusting the key
 
-- **QEMU:** with firmware in Setup Mode (a fresh OVMF variable store), systemd-boot enrols the certificate from
-  `loader/keys/auto/` by itself (`secure-boot-enroll force`), resets, and boots signed. Shown by the test.
-- **A real computer:** put the firmware in Setup Mode (its menu clears the platform key) and either let systemd-boot enrol
-  (`secure-boot-enroll force` in `loader/loader.conf`) or add `ersa-secure-boot.cer` as a `db` entry in the firmware menu.
-  Firmware that only trusts Microsoft's keys refuses these images. Switching Secure Boot off in the menu always restores
-  booting. **Not tested on any real computer.**
+- **QEMU / Setup Mode:** systemd-boot enrols the certificate from `loader/keys/auto/` itself (`secure-boot-enroll force`).
+- **A real computer:** put the firmware in Setup Mode (clear the platform key) and let systemd-boot enrol, or add
+  `ersa-secure-boot.cer` as a `db` entry in the firmware menu. Firmware that only trusts Microsoft's keys refuses these
+  images; switching Secure Boot off restores booting. A shim or documented enrolment steps are still needed for ordinary users.
 
-## Tested: `scripts/qemu-secureboot-test`
+## The test
 
-OVMF with Secure Boot enforcement in QEMU, a throwaway key, signing with sbsign. Passed on the 0.1.0 image:
-
-| Case | Result |
-| --- | --- |
-| Setup Mode: systemd-boot enrols the key, resets, the signed kernel image boots to a login prompt, the kernel says it is locked down from EFI Secure Boot mode | passed |
-| unsigned kernel image | refused (Access Denied) |
-| kernel image signed by another certificate | refused |
-| signed kernel image with one byte changed | refused |
-| unsigned systemd-boot | refused |
-
-Not tested: mkosi's own signing, real firmware, TPM measurements, the installer and `foundation update install` with signed
-images.
-
-## Known blocker for signed updates
-
-A signed kernel image cannot be edited. `foundation update install` rewrites its command line (the slot's `root=` label and
-this machine's data volume tokens), and `pe.rewrite_cmdline` refuses signed images, so **signed images cannot be installed by
-update yet**. The command line has to be the same on every machine (root found from the booted entry or a dm-verity hash,
-the data volume found on the same disk), and per-machine choices such as the splash theme already live in UEFI variables.
-That change, with dm-verity, comes next (`docs/architecture.md`).
+`scripts/qemu-secureboot-test --image DISK --uki UKI`: enrol and boot to a login prompt with the kernel locked down; then an
+unsigned UKI, a UKI signed by another key, a signed UKI with one changed byte, and an unsigned systemd-boot must all be
+refused (each: "Access Denied"). QEMU's firmware is emulated, so this is not proof for any real firmware.

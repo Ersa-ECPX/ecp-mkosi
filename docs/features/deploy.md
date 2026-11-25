@@ -84,3 +84,22 @@ a user created through AccountsService gets its home, the entry is blessed after
   disks with that label attached at once are ambiguous. A generator that finds the volume on the booted disk is planned.
 
 See also: [installer](installer-app.md), [installer medium](live-medium.md), [docs/installer.md](../installer.md).
+
+## Unattended installs: preseed
+
+```
+foundation deploy check-preseed office.conf                         # validate it; changes nothing
+sudo foundation deploy install /dev/sdb --preseed office.conf --yes  # install without questions
+```
+
+A preseed file is `key=value` lines (`#` for comments): any setting of the configuration schema (`foundation config list`: `ota.url`,
+`ota.auto_update`, `apps.default_apps`, ...), and `deploy.language` (`de_DE.UTF-8`), `deploy.timezone` (`Europe/Berlin`) and
+`deploy.hostname`. The settings are written to the installed system as `/etc/foundation/foundation.conf.d/50-preseed.conf` (the API's own
+file sorts after it, so they can be changed later); the others become `/etc/locale.conf`, `/etc/localtime` and `/etc/hostname`. The file is
+checked completely before anything is erased: an unknown key, a wrong type, a read-only setting or a bad locale, zone or host name are all
+reported together. `--language` and `--timezone` on the command line win over the file. Daemon method: `Deploy.DeployPreseeded` (and
+`CheckPreseed`). Nothing secret belongs in the file: it is copied as it is.
+
+Not built: finding the file by itself (a labelled USB partition or a `ecp.preseed=` kernel argument on the installer medium), creating the
+first user account (GNOME Initial Setup still asks), network and Wi-Fi settings, and enrolling the machine in management. Tested: parsing,
+the files written into the seed, and the daemon's refusal of a bad file (14 tests); **not yet run through a real installation**.
