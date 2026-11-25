@@ -1,0 +1,9 @@
+[Unit]
+Description=Make the booted system the default after a good boot
+After=systemd-bless-boot.service
+Wants=systemd-bless-boot.service
+ConditionPathExists=/sys/firmware/efi/efivars/LoaderBootCountPath-4a67b082-0a4c-41cf-b6c7-440b29bb8c4f
+
+[Service]
+Type=oneshot
+ExecStart=/usr/libexec/ecp-pin-default

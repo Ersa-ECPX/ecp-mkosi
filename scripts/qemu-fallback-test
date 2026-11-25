@@ -1,0 +1,196 @@
+#!/usr/bin/env python3
+"""Install the system from the installer medium in QEMU, install an update, break the update, and check that boot counting
+falls back to the system that worked.
+
+    scripts/qemu-fallback-test --archive FILE.tar.zst [--installer IMG] [--work-dir DIR]
+
+Steps, each in its own QEMU run (a small program is injected through a systemd credential, as in scripts/qemu-smoke, and
+reports through a second disk; Secure Boot is off):
+  1 install   the installer medium (read-only) deploys the system onto a blank disk with `foundation deploy install`
+  2 update    boot the installed disk; `foundation update install --unsigned --force` (developer mode is turned on first) writes the archive into the spare slot
+              (--force: the default archive is older than the installed system); then the first 8 MiB of the spare slot's
+              root partition are overwritten, so the new system cannot mount its root
+  3 fallback  boot again and again. A boot that has not reported within --attempt-timeout is killed, which is what a power
+              cut or a watchdog does to a hung machine. The update chooses the new entry for ONE start (a one-shot); the system
+              that worked stays the default. The test passes when the first attempt (the new, broken system) fails and a later
+              one boots the ORIGINAL system, marked good, and the broken entry has not become the default.
+
+The archive must be a version NEWER than the installer's whose root image differs from the installed one (a real build: scripts/build
+--profile root --image-version X, then scripts/make-update-archive X --no-sign). An archive with the installed system's own root
+image would give both slots the same root hash, and the two entries could not be told apart.
+
+The disk, the firmware variables and the logs live in --work-dir (default mkosi.output/qemu-test) and are kept. A real
+machine whose initrd hangs also needs a power cycle or a hardware watchdog: nothing in the image reboots it by itself.
+
+Needs: qemu-system-x86_64, OVMF, the installer image and an update archive (scripts/make-update-archive). KVM is used when
+available. About 20 minutes. The host serves the archive from 127.0.0.1 only; the guest reaches it as 10.0.2.2.
+"""
+
+import argparse
+import base64
+import functools
+import glob
+import http.server
+import os
+import re
+import shutil
+import subprocess
+import sys
+import threading
+import time
+
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+CODE = "/usr/share/edk2/x64/OVMF_CODE.4m.fd"
+VARS = "/usr/share/edk2/x64/OVMF_VARS.4m.fd"
+# wait for the system to settle, and for the boot to be blessed, before the real work
+PRELUDE = ("exec >/dev/{dev} 2>&1; timeout 300 systemctl is-system-running --wait; "
+           'for i in $(seq 1 90); do foundation slot status 2>/dev/null | grep -q "good" && break; sleep 2; done; ')
+EPILOGUE = "; echo ECP-END; sync; sleep 3; systemctl poweroff"
+
+
+def unit(script, dev):
+    text = PRELUDE.format(dev=dev) + script + EPILOGUE
+    encoded = base64.b64encode(text.encode()).decode()      # no quoting problems for systemd or the shell
+    return ("[Unit]\nDescription=test\nAfter=multi-user.target\n\n[Service]\nType=simple\n"
+            f"ExecStart=/bin/sh -c 'echo {encoded} | base64 -d | sh'\n")
+
+
+def run_vm(name, work, drives, result_dev, script, timeout, reboot=False):
+    """One boot. Returns (reported, result text, serial text); reported is whether the program ran to its end."""
+    result = os.path.join(work, f"{name}.result")
+    serial = os.path.join(work, f"{name}.serial")
+    for path in (result, serial):
+        if os.path.exists(path):
+            os.unlink(path)
+    subprocess.run(["truncate", "-s", "8M", result], check=True)
+    kvm = os.access("/dev/kvm", os.R_OK | os.W_OK)
+    credential = base64.b64encode(unit(script, result_dev).encode()).decode()
+    cmd = ["qemu-system-x86_64", "-machine", "q35" + (",accel=kvm" if kvm else ""), "-cpu", "host" if kvm else "max",
+           "-m", "6144", "-smp", "4"] + ([] if reboot else ["-no-reboot"]) + [
+           "-drive", f"if=pflash,format=raw,readonly=on,file={CODE}",
+           "-drive", f"if=pflash,format=raw,file={os.path.join(work, 'vars.fd')}"]
+    for path, snapshot in drives:
+        cmd += ["-drive", f"file={path},format=raw,if=virtio,cache=unsafe" + (",snapshot=on" if snapshot else "")]
+    cmd += ["-drive", f"file={result},format=raw,if=virtio,cache=unsafe", "-nic", "user", "-device", "virtio-rng-pci",
+            "-display", "none", "-vga", "std", "-monitor", "none", "-serial", f"file:{serial}",
+            "-smbios", f"type=11,value=io.systemd.credential.binary:systemd.extra-unit.ecp-test.service={credential}",
+            "-smbios", "type=11,value=io.systemd.stub.kernel-cmdline-extra=systemd.wants=ecp-test.service"]
+    process = subprocess.Popen(cmd, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
+    try:
+        process.communicate(timeout=timeout)
+    except subprocess.TimeoutExpired:
+        process.kill()
+        process.communicate()
+    with open(result, "rb") as handle:
+        text = re.sub(rb"\0+", b"", handle.read()).decode("utf-8", errors="replace")
+    with open(serial, "rb") as handle:
+        log = re.sub(r"\x1b\[[0-9;?=]*[a-zA-Z]", "", handle.read().decode("utf-8", errors="replace")).replace("\r", "")
+    return "ECP-END" in text, text, log
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
+    parser.add_argument("--installer", help="the installer medium (default: the newest mkosi.output/ecp-installer_*.raw)")
+    parser.add_argument("--archive", required=True, help="the update to install: a dm-verity archive from scripts/make-update-archive, of a version other than the installer's")
+    parser.add_argument("--work-dir", default=os.path.join(ROOT, "mkosi.output", "qemu-test"))
+    parser.add_argument("--attempt-timeout", type=int, default=200, help="seconds before a boot is counted as failed (default 200)")
+    parser.add_argument("--attempts", type=int, default=6)
+    parser.add_argument("--self-reboot", action="store_true", help="let the machine restart itself (kernel panic=, watchdog, trial-boot timeout) "
+                        "instead of killing a failed boot: one run, which must end on the original system after the tries are used")
+    args = parser.parse_args()
+
+    installer = args.installer or max(glob.glob(os.path.join(ROOT, "mkosi.output", "ecp-installer_*.raw")), key=os.path.getmtime, default=None)
+    archive = args.archive
+    if not installer or not os.path.exists(archive):
+        sys.exit("need an installer image (scripts/build --profile installer) and an update archive (scripts/make-update-archive)")
+    installer, archive = os.path.realpath(installer), os.path.realpath(archive)
+    work = os.path.abspath(args.work_dir)
+    os.makedirs(work, exist_ok=True)
+    disk = os.path.join(work, "disk.raw")
+    for path in (disk,):
+        if os.path.exists(path):
+            os.unlink(path)
+    subprocess.run(["truncate", "-s", "32G", disk], check=True)
+    shutil.copy(VARS, os.path.join(work, "vars.fd"))
+    failures = []
+
+    def check(title, ok, detail=""):
+        print(f"  {'PASS' if ok else 'FAIL'}  {title}" + (f"  ({detail})" if detail else ""), flush=True)
+        if not ok:
+            failures.append(title)
+
+    # the guest fetches the archive from here
+    handler = functools.partial(http.server.SimpleHTTPRequestHandler, directory=os.path.dirname(archive))
+    handler.log_message = lambda *a, **k: None
+    server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), handler)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    url = f"http://10.0.2.2:{server.server_address[1]}/{os.path.basename(archive)}"
+
+    print(f"1. install: {os.path.basename(installer)} onto a blank disk", flush=True)
+    done, text, _ = run_vm("install", work, [(installer, True), (disk, False)], "vdc",
+                           "foundation deploy install /dev/vdb --yes --language en_US.UTF-8 --timezone UTC; echo DEPLOY-RC=$?", 900)
+    check("the installer medium installed the system", done and "Installed  version" in text, re.findall(r"Installed  version \S+", text)[0] if "Installed  version" in text else "see install.result")
+    if failures:
+        print(text[-1500:])
+        return 1
+
+    print("2. update: install the archive into the spare slot, then break that slot", flush=True)
+    script = ("echo RUNNING=$(. /usr/lib/os-release; echo $IMAGE_VERSION); run=$(foundation slot status | sed -n 's/.*Running slot *\\([ab]\\).*/\\1/p'); echo RUNSLOT=$run; "
+              "if [ $run = a ]; then sp=b; else sp=a; fi; "
+              f"foundation config set system.developer_mode true; foundation update install {url} --unsigned --yes --force; echo UPDATE-RC=$?; "
+              "foundation slot status; dev=$(lsblk -nrpo NAME,PARTLABEL | awk -v l=ecp-root-$sp '$2==l{print $1}'); echo BREAK=$dev; "
+              "dd if=/dev/urandom of=$dev bs=1M count=8 oflag=direct conv=notrunc status=none; echo BROKEN-RC=$?; ls /boot/EFI/Linux")
+    done, text, _ = run_vm("update", work, [(disk, False)], "vdb", script, 900)
+    original = (re.search(r"RUNNING=(\S+)", text) or [None, "?"])[1]
+    check("the update was installed into the spare slot", done and "UPDATE-RC=0" in text and "is ready" in text)
+    check("the spare slot's root was overwritten", "BROKEN-RC=0" in text and "BREAK=/dev/" in text)
+    if failures:
+        print(text[-2500:])
+        return 1
+    print(f"   original system {original}; the new entry has 3 tries", flush=True)
+
+    if args.self_reboot:
+        print("3. fallback: one run; the broken system must restart the machine by itself until the original boots", flush=True)
+        started = time.monotonic()
+        done, final, _log = run_vm("selfreboot", work, [(disk, False)], "vdb",
+                                   "echo BOOTED=$(. /usr/lib/os-release; echo $IMAGE_VERSION); foundation slot status; ls /boot/EFI/Linux; "
+                                   "for v in Selected Default OneShot; do echo LOADER-$v=[$(tail -c +5 /sys/firmware/efi/efivars/LoaderEntry$v-4a67b082-0a4c-41cf-b6c7-440b29bb8c4f 2>/dev/null | tr -d '\\0')]; done",
+                                   args.attempt_timeout * 3, reboot=True)
+        print(f"   one run, {time.monotonic() - started:.0f}s: {'the original booted' if done else 'nothing reported'}", flush=True)
+        booted = (re.search(r"BOOTED=(\S+)", final) or [None, ""])[1]
+        check("the machine restarted itself and the original system booted", done and booted == original, f"booted {booted or '?'}, original {original}")
+        check("the boot was marked good", "good" in final)
+        check("the broken entry used all its tries", bool(re.search(r"ecp_\S+\+0-\d+\.efi", final)))
+        print("\n" + ("ALL CHECKS PASSED" if not failures else f"{len(failures)} CHECK(S) FAILED"))
+        print(final[-1500:])
+        return 1 if failures else 0
+
+    print("3. fallback: boot until a boot reports; hung boots are killed (a power cut)", flush=True)
+    outcomes, final = [], ""
+    for attempt in range(1, args.attempts + 1):
+        started = time.monotonic()
+        done, text, log = run_vm(f"attempt{attempt}", work, [(disk, False)], "vdb",
+                                 "echo BOOTED=$(. /usr/lib/os-release; echo $IMAGE_VERSION); foundation slot status; ls /boot/EFI/Linux; "
+                                 "for v in Selected Default OneShot; do echo LOADER-$v=[$(tail -c +5 /sys/firmware/efi/efivars/LoaderEntry$v-4a67b082-0a4c-41cf-b6c7-440b29bb8c4f 2>/dev/null | tr -d '\\0')]; done", args.attempt_timeout)
+        outcomes.append(done)
+        print(f"   attempt {attempt}: {'booted' if done else 'did not boot'} ({time.monotonic() - started:.0f}s)", flush=True)
+        if done:
+            final = text
+            break
+    check("the broken system was tried and did not start", outcomes[:1] == [False], f"outcomes {outcomes}")
+    check("a later attempt booted", bool(final))
+    booted = (re.search(r"BOOTED=(\S+)", final) or [None, ""])[1]
+    check("it is the original system", booted == original, f"booted {booted or '?'}, original {original}")
+    check("the boot was marked good", "good" in final)
+    check("the broken system did not become the default", "LOADER-Default=[ecp_" + original + ".efi]" in final or "LOADER-Default=[]" in final,
+          (re.search(r"LOADER-Default=\[[^\]]*\]", final) or [""])[0])
+    last_log = os.path.join(work, "attempt1.serial")
+    print(f"   serial log of the first failed attempt: {last_log}")
+    print("\n" + ("ALL CHECKS PASSED" if not failures else f"{len(failures)} CHECK(S) FAILED"))
+    if final:
+        print(final[-1800:])
+    return 1 if failures else 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

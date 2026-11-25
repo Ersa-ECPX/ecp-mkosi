@@ -144,7 +144,6 @@ def main():
     if not os.path.exists(uki):
         sys.exit(f"no kernel image {uki}: pass --uki")
     sbsign = sbsign_command()
-    from foundationd.backends import pe
 
     with tempfile.TemporaryDirectory(prefix="ecp-sb.") as work:
         good_key, good_crt = make_key(work, "good")
@@ -156,7 +155,17 @@ def main():
         # readable boot messages: not quiet, kernel messages at info level (the kernel reports "locked down from EFI Secure Boot mode")
         with open(uki, "rb") as handle:
             original = handle.read()
-        readable = pe.rewrite_cmdline(original, lambda t: t.replace(" quiet", "").replace("loglevel=3", "loglevel=6"))
+        # readable boot messages: edit the .cmdline section of a copy with objcopy (the copy is re-signed below)
+        cmdline_file = os.path.join(work, "cmdline.txt")
+        subprocess.run(["objcopy", "-O", "binary", "--only-section=.cmdline", uki, cmdline_file], check=True)
+        with open(cmdline_file, "rb") as handle:
+            text = handle.read().rstrip(b"\0").replace(b" quiet", b"").replace(b"loglevel=3", b"loglevel=6")
+        with open(cmdline_file, "wb") as handle:
+            handle.write(text + b"\0")
+        unsigned = os.path.join(work, "uki-edited.efi")
+        subprocess.run(["objcopy", "--update-section", ".cmdline=" + cmdline_file, uki, unsigned], check=True)
+        with open(unsigned, "rb") as handle:
+            readable = handle.read()
         plain = os.path.join(work, "uki-plain.efi")
         with open(plain, "wb") as handle:
             handle.write(readable)

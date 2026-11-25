@@ -1,0 +1,10 @@
+[Unit]
+Description=Restart a system on trial that has not been confirmed good in time
+# A start can hang without failing (a unit that never finishes). A system on trial gets 15 minutes to reach the graphical target
+# with no failed unit (systemd-bless-boot confirms it); after that it is restarted, which uses one of its tries.
+DefaultDependencies=no
+ConditionPathExists=/sys/firmware/efi/efivars/LoaderBootCountPath-4a67b082-0a4c-41cf-b6c7-440b29bb8c4f
+
+[Service]
+Type=simple
+ExecStart=/usr/libexec/ecp-trial-boot-timeout 900

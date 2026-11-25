@@ -1,0 +1,7 @@
+#!/bin/sh
+# Runs after systemd-bless-boot: the running entry has had a good boot, so make it the default.
+# An update only boots its new entry once, so a bad update falls back by itself.
+var=/sys/firmware/efi/efivars/LoaderEntrySelected-4a67b082-0a4c-41cf-b6c7-440b29bb8c4f
+[ -r "$var" ] || exit 0
+id=$(tail -c +5 "$var" | tr -d '\0' | sed -E 's/\+[0-9]+(-[0-9]+)?\.efi$/.efi/')
+case "$id" in ecp_*.efi) exec bootctl set-default "$id" ;; esac

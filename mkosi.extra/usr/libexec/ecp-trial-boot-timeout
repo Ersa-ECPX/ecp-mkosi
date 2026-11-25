@@ -1,0 +1,12 @@
+#!/bin/sh
+# Restart if this boot is still on trial (its boot entry still carries the try counter) after $1 seconds.
+var=/sys/firmware/efi/efivars/LoaderBootCountPath-4a67b082-0a4c-41cf-b6c7-440b29bb8c4f
+[ -r "$var" ] || exit 0
+path=$(tail -c +5 "$var" | tr -d '\0')
+esp=$(bootctl --print-esp-path 2>/dev/null) || exit 0
+[ -n "$path" ] || exit 0
+sleep "${1:-900}"
+if [ -e "$esp$path" ]; then
+  echo "this start was not confirmed good in time; restarting" >&2
+  exec systemctl --no-block --force reboot
+fi

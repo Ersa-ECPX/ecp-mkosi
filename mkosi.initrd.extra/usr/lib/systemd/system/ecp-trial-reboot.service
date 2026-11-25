@@ -1,0 +1,11 @@
+[Unit]
+Description=Restart a system on trial that could not start
+# Only while the boot entry still counts tries (systemd-boot sets this variable then). A system that was blessed in an earlier
+# boot and drops to the emergency shell stays there, where someone can look at it. Each restart uses one try, and after the last
+# one the loader starts the system that worked.
+DefaultDependencies=no
+ConditionPathExists=/sys/firmware/efi/efivars/LoaderBootCountPath-4a67b082-0a4c-41cf-b6c7-440b29bb8c4f
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/systemctl --no-block --force reboot

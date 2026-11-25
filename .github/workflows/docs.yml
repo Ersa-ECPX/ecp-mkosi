@@ -1,0 +1,50 @@
+# Publishes the documentation: the Markdown under docs/ (and foundation's README) as one self-contained page with a sidebar, search
+# and light/dark themes, built by scripts/build-wiki. It runs when the documentation changes on main, so the site is never older than
+# the text. (The packages site, pkgs-compute.ersa.dev, still carries its own copy at /wiki/, rebuilt only when a release is published.)
+#
+# One-time setup, not done yet: Settings > Pages > Source "GitHub Actions" (or: gh api -X POST repos/Ersa-ECPX/ecp-mkosi/pages
+# -f build_type=workflow). The site is then https://ersa-ecpx.github.io/ecp-mkosi/ ; a custom domain is set on the same page.
+name: Publish the documentation
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "docs/**"
+      - "scripts/build-wiki"
+      - ".github/workflows/docs.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-24.04
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+
+      # foundation is a separate repository; its README is a page of the wiki (docs/wiki.json)
+      - name: Check out foundation (its README is a page)
+        run: git clone --depth 1 https://github.com/Ersa-ECPX/foundation.git foundation
+
+      - name: Build the site
+        run: scripts/build-wiki "$PWD/_site/index.html"
+
+      - uses: actions/configure-pages@v5
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+
+      - id: deployment
+        uses: actions/deploy-pages@v4

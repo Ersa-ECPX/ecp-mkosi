@@ -1,0 +1,32 @@
+#!/usr/bin/env bash
+# Which directory holds the signing keys for this build (like AOSP's test keys and release keys).
+#
+#   scripts/security-dir            prints the directory
+#   scripts/security-dir --kind     prints "test" or "release"
+#
+# In order:
+#   $ECP_SECURITY_DIR               a directory you name (a production one)
+#   build/security/release          used when it exists (ignored by git: a directory or a symlink to your private keys)
+#   build/security/testkeys         the default: PUBLIC test keys kept in this repository. Anyone can sign with them, so images
+#                                   and updates made with them are for testing only, and scripts/release refuses them.
+# A security directory holds: secure-boot/ersa-secure-boot.{key,crt,cer} and image-update/ (the public key ersa-image-*.asc, and
+# either secret-key.asc with passphrase.txt, or a gnupg/ keyring with passphrase.txt). scripts/make-secure-boot-key and
+# scripts/make-image-signing-key make them. See build/security/README.md.
+set -euo pipefail
+root="$(cd "$(dirname "$0")/.." && pwd)"
+if [[ -n "${ECP_SECURITY_DIR:-}" ]]; then
+  dir="$ECP_SECURITY_DIR"
+  [[ -d "$dir" ]] || { echo "ECP_SECURITY_DIR=$dir is not a directory" >&2; exit 1; }
+elif [[ -d "$root/build/security/release" ]]; then
+  dir="$root/build/security/release"
+else
+  dir="$root/build/security/testkeys"
+fi
+dir="$(cd "$dir" && pwd -P)"
+kind=release
+[[ ! -e "$dir/TEST-KEYS" ]] || kind=test
+case "${1:-}" in
+  --kind) echo "$kind" ;;
+  "") echo "$dir" ;;
+  *) echo "usage: scripts/security-dir [--kind]" >&2; exit 2 ;;
+esac

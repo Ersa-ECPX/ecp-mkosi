@@ -12,3 +12,4 @@ enable ersa-var-init.service
 enable foundation-bundles-select.service
 enable foundation-bundles-refresh.service
 enable foundation-autoupdate.timer
+enable foundation-default-apps.service

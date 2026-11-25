@@ -1,0 +1,42 @@
+#!/bin/sh
+# Try the system by hand in QEMU: a window, a blank disk, the installer medium or the installed disk.
+#
+#   scripts/qemu-try install [INSTALLER.raw]   boot the installer medium (read-only) with the blank disk attached
+#   scripts/qemu-try boot                      boot the installed disk
+#   scripts/qemu-try reset                     erase the disk and the firmware variables
+#
+# Files live in mkosi.output/qemu-try/ (disk.raw is sparse, 40 GiB; vars.fd is the firmware's memory, which holds the boot
+# choice). The installer's own disk is opened with snapshot=on, so it is never changed. The guest reaches the host at 10.0.2.2.
+set -eu
+here="$(cd "$(dirname "$0")/.." && pwd)"
+dir="$here/mkosi.output/qemu-try"
+code=/usr/share/edk2/x64/OVMF_CODE.4m.fd
+vars_template=/usr/share/edk2/x64/OVMF_VARS.4m.fd
+mkdir -p "$dir"
+[ -e "$dir/disk.raw" ] || truncate -s 40G "$dir/disk.raw"
+[ -e "$dir/vars.fd" ] || cp "$vars_template" "$dir/vars.fd"
+
+accel=""; cpu=max
+if [ -w /dev/kvm ]; then accel=",accel=kvm"; cpu=host; fi
+
+run() {
+  exec qemu-system-x86_64 -machine "q35$accel" -cpu "$cpu" -m 6144 -smp 4 \
+    -drive if=pflash,format=raw,readonly=on,file="$code" -drive if=pflash,format=raw,file="$dir/vars.fd" \
+    "$@" \
+    -nic user -device virtio-rng-pci -device virtio-vga -display gtk -device qemu-xhci -device usb-tablet
+}
+
+case "${1:-}" in
+  install)
+    installer="${2:-$(ls -t "$here"/mkosi.output/ecp-installer_*.raw | head -n 1)}"
+    echo "installer: $installer" >&2
+    run -drive file="$installer",format=raw,if=virtio,cache=unsafe,snapshot=on \
+        -drive file="$dir/disk.raw",format=raw,if=virtio,cache=unsafe ;;
+  boot)
+    run -drive file="$dir/disk.raw",format=raw,if=virtio,cache=unsafe ;;
+  reset)
+    rm -f "$dir/disk.raw" "$dir/vars.fd"
+    truncate -s 40G "$dir/disk.raw"; cp "$vars_template" "$dir/vars.fd"
+    echo "erased $dir/disk.raw and $dir/vars.fd" ;;
+  *) sed -n '2,9p' "$0" >&2; exit 2 ;;
+esac

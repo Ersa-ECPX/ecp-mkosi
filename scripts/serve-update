@@ -12,7 +12,7 @@ port="${2:-8000}"
 [[ -d "$dir" ]] || { echo "$dir does not exist; run scripts/publish-update first" >&2; exit 1; }
 shopt -s nullglob
 for f in "$dir"/*.tar.zst "$dir"/update/*.tar.zst; do
-  echo "in the guest:  foundation update install http://10.0.2.2:$port/${f#"$dir"/} --unsigned"
+  echo "in the guest:  foundation update install http://10.0.2.2:$port/${f#"$dir"/} --unsigned   (needs developer mode: foundation config set system.developer_mode true)"
 done
 echo "serving $dir on http://127.0.0.1:$port/  (guest: http://10.0.2.2:$port/)  -- Ctrl-C to stop"
 exec python3 -m http.server --directory "$dir" --bind 127.0.0.1 "$port"

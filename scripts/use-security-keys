@@ -1,0 +1,40 @@
+#!/usr/bin/env bash
+# Point the build at the signing keys chosen by scripts/security-dir. Called by scripts/build before mkosi runs.
+#   - secure-boot/ in the repository becomes a link to <security dir>/secure-boot (mkosi.conf reads it from there)
+#   - a test-keys build trusts the test update key: its public half is written to mkosi.extra/etc/foundation/keys/
+#     (git-ignored; removed again for a release-keys build, which trusts only the keys the foundation package ships)
+# ECP_REQUIRE_SB_KEY=1 (scripts/release) refuses the test keys.
+set -euo pipefail
+cd "$(dirname "$0")/.."
+dir="$(scripts/security-dir)"
+kind="$(scripts/security-dir --kind)"
+if [[ "$kind" == test ]]; then
+  if [[ "${ECP_REQUIRE_SB_KEY:-}" == 1 ]]; then
+    echo "this build would use the public TEST keys (build/security/testkeys); a release needs your own: set ECP_SECURITY_DIR=/path/to/keys or" >&2
+    echo "  ln -s /path/to/keys build/security/release        (see build/security/README.md)" >&2
+    exit 1
+  fi
+  echo "signing keys: TEST keys ($dir): images and updates made now are for testing only" >&2
+else
+  echo "signing keys: $dir" >&2
+fi
+for need in secure-boot/ersa-secure-boot.key secure-boot/ersa-secure-boot.crt; do
+  [[ -f "$dir/$need" ]] || { echo "$dir/$need is missing (scripts/make-secure-boot-key $dir/secure-boot)" >&2; exit 1; }
+done
+if [[ -e secure-boot && ! -L secure-boot ]]; then
+  echo "secure-boot/ is a real directory; move it to build/security/release/secure-boot (or remove it) so the build can link it" >&2
+  exit 1
+fi
+if [[ -L secure-boot && "$(readlink secure-boot)" != "$dir/secure-boot" ]]; then
+  echo "secure-boot/ pointed to $(readlink secure-boot); it now points to $dir/secure-boot (the keys there are not touched)" >&2
+fi
+ln -sfn "$dir/secure-boot" secure-boot
+trust=mkosi.extra/etc/foundation/keys/ersa-image-test.asc
+if [[ "$kind" == test ]]; then
+  public="$(ls "$dir"/image-update/ersa-image-*.asc 2>/dev/null | head -n 1 || true)"
+  [[ -n "$public" ]] || { echo "no $dir/image-update/ersa-image-*.asc" >&2; exit 1; }
+  mkdir -p "$(dirname "$trust")"
+  cp "$public" "$trust"
+else
+  rm -f "$trust"
+fi

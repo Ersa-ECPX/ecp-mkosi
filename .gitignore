@@ -27,3 +27,6 @@ __pycache__/
 *.tar
 .venv/
 /secure-boot*
+/build/security/release
+/mkosi.extra/etc/foundation/keys/ersa-image-test.asc
+/_site/

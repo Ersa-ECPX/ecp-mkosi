@@ -1,0 +1,3 @@
+These are PUBLIC test keys. The secret halves are in this repository on purpose, so anyone can build and sign test images and
+updates without setting anything up. Never trust them on a real machine, and never ship an image or an update made with them:
+scripts/release refuses them. Your own keys go in another directory (ECP_SECURITY_DIR, or build/security/release).

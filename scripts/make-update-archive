@@ -2,8 +2,9 @@
 """Make an update archive that `foundation update install` reads, from the output of the `root` profile.
 
     scripts/build x86-64 --profile root
-    scripts/make-update-archive 0.2.0                       # unsigned: only for an image you built yourself
-    ECP_SIGN_KEY=<key id> scripts/make-update-archive 0.2.0 --sign
+    scripts/make-update-archive 0.2.0                       # signed with the update key of scripts/security-dir
+    scripts/make-update-archive 0.2.0 --no-sign             # unsigned: installing it needs developer mode and --unsigned
+    ECP_SIGN_KEY=<key id> scripts/make-update-archive 0.2.0 # sign with a key in your own GPG keyring instead
 
 Reads  mkosi.output/root/ecp_<version>.root-x86-64.raw[.zst]         (the root filesystem, EROFS)
        mkosi.output/root/ecp_<version>.root-x86-64-verity.raw[.zst]  (its dm-verity hash tree: mkosi's own name for it)
@@ -12,16 +13,19 @@ Reads  mkosi.output/root/ecp_<version>.root-x86-64.raw[.zst]         (the root f
                                                                       which carries it as roothash= on its command line)
 Writes dist/update/latest-x86_64.json (the feed the updater window reads: version, file, size, sha256) and
        dist/update/ecp_<version>-x86_64.tar.zst holding exactly: manifest.json (first), manifest.json.sig (with
---sign), uki.efi, root.erofs, verity.img (the small kernel image comes first so the installer can read it before the images). The manifest names the root hash and the size and SHA-256 of the three files. The manifest is what is signed and names the size and SHA-256 of the two big files.
-The signing key must live outside this repository, in your GPG keyring (scripts/make-image-signing-key makes one;
-ECP_SIGN_PASSPHRASE_FILE names a file holding its passphrase, for unattended signing); the system trusts a key only if its public
-half is installed as /usr/share/foundation/keys/ersa-image-*.asc or /etc/foundation/keys/ersa-image-*.asc.
+signature), uki.efi, root.erofs, verity.img (the small kernel image comes first so the installer can read it before the images). The manifest names the root hash and the size and SHA-256 of the three files. The manifest is what is signed and names the size and SHA-256 of the two big files.
+By default it signs with the keys of scripts/security-dir: the public TEST keys in build/security/testkeys, or your own when
+ECP_SECURITY_DIR is set or build/security/release exists (build/security/README.md). A system trusts a key only if its public half
+is installed as /usr/share/foundation/keys/ersa-image-*.asc or /etc/foundation/keys/ersa-image-*.asc: scripts/build puts the test
+key there for a test-keys build and leaves it out of a release-keys build.
 """
 
 import argparse
+import atexit
 import hashlib
 import json
 import os
+import shutil
 import subprocess
 import sys
 import tarfile
@@ -75,6 +79,46 @@ def read_roothash(roothash_file, uki):
     return named
 
 
+def security_dir():
+    here = os.path.dirname(os.path.abspath(__file__))
+    run = lambda *a: subprocess.run([os.path.join(here, "security-dir"), *a], check=True, capture_output=True, text=True).stdout.strip()
+    return run(), run("--kind")
+
+
+def first_fingerprint(env):
+    out = subprocess.run(["gpg", "--batch", "--list-secret-keys", "--with-colons"], check=True, capture_output=True, text=True, env=env).stdout
+    for line in out.splitlines():
+        if line.startswith("fpr:"):
+            return line.split(":")[9]
+    sys.exit("no secret signing key was found")
+
+
+def signing_setup():
+    """How to sign: the key you name (ECP_SIGN_KEY, in your own GPG keyring, as before), else the update key of the security
+    directory (scripts/security-dir): a gnupg/ keyring with passphrase.txt, or secret-key.asc imported into a throwaway keyring."""
+    env = dict(os.environ)
+    if os.environ.get("ECP_SIGN_KEY"):
+        return {"key": os.environ["ECP_SIGN_KEY"], "env": env, "passphrase_file": os.environ.get("ECP_SIGN_PASSPHRASE_FILE", ""), "kind": "custom"}
+    directory, kind = security_dir()
+    keys = os.path.join(directory, "image-update")
+    passphrase = os.path.join(keys, "passphrase.txt")
+    passphrase = passphrase if os.path.isfile(passphrase) else ""
+    if os.path.isdir(os.path.join(keys, "gnupg")):
+        env["GNUPGHOME"] = os.path.join(keys, "gnupg")
+    elif os.path.isfile(os.path.join(keys, "secret-key.asc")):
+        home = tempfile.mkdtemp(prefix="ecp-gnupg.")
+        os.chmod(home, 0o700)
+        atexit.register(shutil.rmtree, home, True)
+        env["GNUPGHOME"] = home
+        command = ["gpg", "--batch", "--quiet", "--import"]
+        if passphrase:
+            command += ["--pinentry-mode", "loopback", "--passphrase-file", passphrase]
+        subprocess.run(command + [os.path.join(keys, "secret-key.asc")], check=True, env=env, stderr=subprocess.DEVNULL)
+    else:
+        sys.exit(f"no update signing key in {keys} (scripts/make-image-signing-key); or pass --no-sign")
+    return {"key": first_fingerprint(env), "env": env, "passphrase_file": passphrase, "kind": kind}
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("version")
@@ -82,7 +126,8 @@ def main():
     parser.add_argument("--source", default=os.path.join(ROOT, "mkosi.output", "root"))
     parser.add_argument("--output", default=os.path.join(ROOT, "dist", "update"))
     parser.add_argument("--base-url", help="write the update feed's file as BASE_URL/<archive name> (an absolute address) instead of a name relative to the feed")
-    parser.add_argument("--sign", action="store_true", help="sign manifest.json with the GPG key in $ECP_SIGN_KEY")
+    parser.add_argument("--sign", action="store_true", help="sign manifest.json (the default; kept for older command lines)")
+    parser.add_argument("--no-sign", action="store_true", help="make an unsigned archive (installing it needs developer mode and --unsigned)")
     args = parser.parse_args()
 
     uki = os.path.join(args.source, f"ecp_{args.version}.efi")
@@ -92,9 +137,7 @@ def main():
         if path is None:
             sys.exit(f"missing {what} for {args.version} in {args.source}; build it with: scripts/build {args.arch} --profile root --image-version {args.version}")
     roothash_file = os.path.join(args.source, f"ecp_{args.version}.roothash")
-    key = os.environ.get("ECP_SIGN_KEY", "")
-    if args.sign and not key:
-        sys.exit("--sign needs ECP_SIGN_KEY (a GPG key id)")
+    signer = None if args.no_sign else signing_setup()
     os.makedirs(args.output, exist_ok=True)
     out = os.path.join(args.output, f"ecp_{args.version}-{ARCH[args.arch]}.tar.zst")
 
@@ -115,12 +158,12 @@ def main():
             json.dump(manifest, handle, indent=1)
             handle.write("\n")
         members = [("manifest.json", manifest_path)]
-        if args.sign:
+        if signer:
             signature = manifest_path + ".sig"
-            command = ["gpg", "--batch", "--yes", "--armor", "--detach-sign", "-u", key, "-o", signature]
-            if os.environ.get("ECP_SIGN_PASSPHRASE_FILE"):
-                command += ["--pinentry-mode", "loopback", "--passphrase-file", os.environ["ECP_SIGN_PASSPHRASE_FILE"]]
-            subprocess.run(command + [manifest_path], check=True)
+            command = ["gpg", "--batch", "--yes", "--armor", "--detach-sign", "-u", signer["key"], "-o", signature]
+            if signer["passphrase_file"]:
+                command += ["--pinentry-mode", "loopback", "--passphrase-file", signer["passphrase_file"]]
+            subprocess.run(command + [manifest_path], check=True, env=signer["env"])
             members.append(("manifest.json.sig", signature))
         members += [("uki.efi", uki), ("root.erofs", erofs), ("verity.img", tree)]
         with open(out, "wb") as target:
@@ -145,7 +188,9 @@ def main():
         handle.write("\n")
     print(out)
     print(feed)
-    print("install it with: foundation update install " + os.path.relpath(out) + ("" if args.sign else " --unsigned"))
+    print("install it with: foundation update install " + os.path.relpath(out) + ("" if signer else " --unsigned   (developer mode)"))
+    if signer and signer["kind"] == "test":
+        print("signed with the public TEST key (build/security/testkeys): fine for a system built with the same keys, never for a release")
 
 
 if __name__ == "__main__":

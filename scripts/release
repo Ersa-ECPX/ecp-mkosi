@@ -32,9 +32,9 @@ for arg in "$@"; do
   esac
 done
 for tool in zstd gh git; do command -v "$tool" >/dev/null || { echo "$tool is required" >&2; exit 1; }; done
-if [[ -e secure-boot/DEVELOPMENT-KEY ]]; then
-  echo "secure-boot/ holds the DEVELOPMENT Secure Boot key; a release must be signed with the real one." >&2
-  echo "  mv secure-boot secure-boot.dev && cp -r ~/Dev/signing-keys/secure-boot secure-boot   (then build again)" >&2
+if [[ "$(scripts/security-dir --kind)" == test ]]; then
+  echo "the signing keys are the public TEST keys (build/security/testkeys); a release must use your own." >&2
+  echo "  ECP_SECURITY_DIR=/path/to/keys scripts/release ...    or    ln -s /path/to/keys build/security/release" >&2
   exit 1
 fi
 gh auth status >/dev/null 2>&1 || { echo "gh is not logged in (gh auth login)" >&2; exit 1; }

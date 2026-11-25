@@ -7,7 +7,7 @@ Inter Tight is not packaged in Tumbleweed, and a wordmark should not depend on w
 converted to paths. Writes ersa-wordmark-light.svg (dark letters, for light backgrounds) and ersa-wordmark-dark.svg (light
 letters), with the same colours as the mark. The font is licensed under the SIL Open Font License 1.1 (The Inter Project
 Authors); converting its glyphs into a logo is allowed by it, and the licence text is in docs/licenses/ (INTER-TIGHT-OFL.txt).
-Default OUTDIR: foundation/foundation_updater.
+Default OUTDIR: foundation/foundation_deck.
 """
 
 import os
@@ -27,7 +27,7 @@ def main():
     if len(sys.argv) < 2:
         sys.exit(__doc__)
     path = sys.argv[1]
-    out = sys.argv[2] if len(sys.argv) > 2 else os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "foundation", "foundation_updater")
+    out = sys.argv[2] if len(sys.argv) > 2 else os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "foundation", "foundation_deck")
     blob = hb.Blob.from_file_path(path)
     face = hb.Face(blob)
     upem = face.upem
