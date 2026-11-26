@@ -66,6 +66,11 @@ changed later); the others become `/etc/locale.conf`, `/etc/localtime` and `/etc
 anything is erased and all errors are reported together. `--language` and `--timezone` win over the file. Daemon methods:
 `Deploy.DeployPreseeded` and `CheckPreseed`. Put nothing secret in it: it is copied as is.
 
+`installer.timezone_url` is a setting of the installer program only (checked, never written to the installed system). The installer asks
+that `https://` service for the time zone of the network address and preselects it (default `https://ipapi.co/timezone/`; empty turns it
+off; the person can always change it). It reads `/etc/foundation/installer.preseed`, else `/usr/share/ersa/installer.preseed` on the medium.
+Unit-tested with a fake service; not run against the real service from an installer medium.
+
 Tested: parsing, the files written into the seed and the daemon's refusal of a bad file (14 tests). Not built: finding the
 file by itself (a labelled USB partition or an `ecp.preseed=` kernel argument), creating the first user, network and Wi-Fi
 settings, enrolling in management.

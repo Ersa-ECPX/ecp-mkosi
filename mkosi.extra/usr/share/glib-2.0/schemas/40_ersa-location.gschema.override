@@ -1,0 +1,7 @@
+# Set the time zone from the network location (geoclue) by default; Initial Setup and Settings > Date & Time show it
+# and the user can turn it off. Location services stay user-controllable (Settings > Privacy).
+[org.gnome.desktop.datetime]
+automatic-timezone=true
+
+[org.gnome.system.location]
+enabled=true

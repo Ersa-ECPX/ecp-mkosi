@@ -1,0 +1,6 @@
+# Settings of the Ersa Compute Platform installer program. Same format as a preseed file (see docs/features/deploy.md).
+# To change them for one medium, put the same lines in /etc/foundation/installer.preseed on it; that file wins.
+
+# The service that tells the installer which time zone your network address is in. It sees the public address of
+# this computer, nothing else. Empty turns detection off (you pick the zone yourself). Must be an https:// address.
+installer.timezone_url=https://ipapi.co/timezone/
