@@ -17,8 +17,6 @@ machine and slot, which is what lets signed kernel images be copied unchanged by
 
 ## Known gaps
 
-- `/var` and `/home` are found by `LABEL=ECP-DATA` on the command line. Two ECP disks attached at once can confuse that; the
-  planned fix is an initrd generator that finds the data volume on the booted disk.
 - The older slot is not synced to the newer system after a good boot (each slot has its own root hash).
 - EROFS compression plus verity costs read speed: measure before claiming anything. A 96 MiB hash partition assumes 8 GiB slots.
 

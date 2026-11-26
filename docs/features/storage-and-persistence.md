@@ -22,25 +22,22 @@ The recovery size is inconsistent: `foundation/foundationd/backends/layout.py` s
 
 ## How it is mounted
 
-`/var` and `/home` come from `systemd.mount-extra=` on the kernel command line (there is no `/etc/fstab`). The data volume
-is found by `LABEL=ECP-DATA`, set in `mkosi.conf.d/30-data-mounts.conf`. The root is found by its dm-verity root hash
-(`roothash=`; the partition UUIDs are its two halves), never by label, so the signed kernel image is identical on every
-machine ([dm-verity](dm-verity.md)). The installer medium uses `ECP-LIVE` and `ecp-live` so an installed disk cannot be
-taken for it ([installer medium](live-medium.md)).
+`/var` and `/home` are mounted in the initrd (there is no `/etc/fstab`) from the data volume of the disk the system started
+from, not from a label on the kernel command line. `ecp-data-device.service` runs `/usr/libexec/ecp/data-link`, which asks
+systemd-boot which partition it started from (the EFI variable `LoaderDevicePartUUID`, the ESP, whose PARTUUID is random per
+disk), takes that partition's disk, and links its partition named `ECP-DATA` (or `ECP-LIVE` on the installer medium) at
+`/run/ecp/data`. `sysroot-var.mount` and `sysroot-home.mount` mount `subvol=var` and `subvol=home` from that link before
+switch-root, as `initrd-fs.target` requirements. The root is found by its dm-verity root hash (`roothash=`; the partition UUIDs
+are its two halves), so the signed kernel image is identical on every machine ([dm-verity](dm-verity.md)).
 
-`/var` carries `x-initrd.mount`: a `mount-extra=` entry is only mounted before switch-root with it. Without it the `/etc`
-overlay's directories do not exist and the machine drops to emergency mode.
+Because the choice is by disk, two disks that both carry `ECP-DATA` (an installed disk and a leftover install) no longer
+compete, and an installed disk attached next to the installer medium cannot supply its `/var` ([installer medium](live-medium.md)).
+If the boot loader did not record a partition, or the disk has no data volume, the helper fails with a reason on the console
+instead of guessing, and the boot stops in the emergency target.
 
 `sysroot-etc.mount` (in `mkosi.initrd.extra`) builds the overlay in the initrd, once `/sysroot/var` is mounted. Without a
 writable `/etc` this early, PID 1 starts with the image's placeholder machine ID and `dbus-broker` refuses to start. The
 overlay's directories are made by the image build or by `foundation deploy`'s seed.
-
-## <a id="known-gap"></a>Known gap
-
-Two disks that both carry the label `ECP-DATA` (for example an installed disk and a leftover installed system) are
-ambiguous: the wrong one can supply `/var` and `/home`. This once left a user with an account but no home. Planned fixes: a
-generator that finds the volume on the booted disk, and a per-install command-line addon on the ESP (which `systemd-stub`
-appends to every kernel image) for kernel images that arrive by OTA. Neither is written.
 
 ## Limits
 
@@ -50,4 +47,4 @@ See also: [architecture.md](../architecture.md#storage-layout), [SELinux](selinu
 
 ## Tested
 
-The layout, the `/etc` overlay and the data volume were tested in QEMU, including a user created through AccountsService that kept its home across a reboot. Not tested: two ECP disks attached at once, or real hardware.
+The layout, the `/etc` overlay and the data volume were tested in QEMU, including a user created through AccountsService that kept its home across a reboot. The disk-based volume lookup (`data-link`) is unit-tested against fake sysfs trees, including two disks with the same label, but **no image with it has been built or booted yet**; the earlier label-based mount is what the QEMU tests above used. Not tested: two ECP disks attached at once in a VM, or real hardware.

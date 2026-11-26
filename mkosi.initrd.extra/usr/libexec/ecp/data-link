@@ -1,0 +1,61 @@
+#!/bin/sh
+# Find the data volume of the disk this system started from, and link it at /run/ecp/data for the /sysroot/var and
+# /sysroot/home mount units.
+#
+# The volume used to be found by its label (LABEL=ECP-DATA on the kernel command line). Two disks that both carry
+# that label (an installed disk and a leftover install, or the installer medium) were then ambiguous: the wrong one
+# could supply /var and /home, and a user ended up with an account but no home. The kernel command line is the same in
+# every image (the kernel image is signed), so it cannot name a particular disk. This asks the boot loader instead:
+# systemd-boot records the partition it started from (LoaderDevicePartUUID, the ESP, whose PARTUUID is random per disk),
+# and the data volume is the partition of that same disk named ECP-DATA (an installed or development system) or
+# ECP-LIVE (the installer medium). The partition name is read from sysfs, which needs no udev database.
+#
+# Overrides for the tests: ECP_EFIVARS, ECP_SYSFS, ECP_DEV, ECP_RUN (the output directory), ECP_WAIT (seconds to wait).
+set -u
+EFIVARS=${ECP_EFIVARS:-/sys/firmware/efi/efivars}
+SYSFS=${ECP_SYSFS:-/sys}
+DEV=${ECP_DEV:-/dev}
+OUT=${ECP_RUN:-/run/ecp}
+WAIT=${ECP_WAIT:-60}
+VARIABLE="$EFIVARS/LoaderDevicePartUUID-4a67b082-0a4c-41cf-b6c7-440b29bb8c4f"
+
+fail() { echo "ecp-data-link: $*" >&2; exit 1; }
+
+# wait until a path exists (the variable, the ESP's device node, the data volume's)
+wait_for() {
+    n=0
+    while [ ! -e "$1" ]; do
+        n=$((n + 1))
+        [ "$n" -gt "$WAIT" ] && fail "$2"
+        sleep 1
+    done
+}
+
+wait_for "$VARIABLE" "the boot loader did not say which partition it started from (no LoaderDevicePartUUID)"
+# the value is 4 bytes of attributes, then the UUID as UTF-16 text
+esp=$(tail -c +5 "$VARIABLE" | tr -d '\0' | tr 'A-Z' 'a-z')
+[ -n "$esp" ] || fail "LoaderDevicePartUUID is empty"
+wait_for "$DEV/disk/by-partuuid/$esp" "the partition the system started from ($esp) did not appear"
+
+partition=$(readlink -f "$DEV/disk/by-partuuid/$esp")
+name=${partition##*/}
+disk=$(readlink -f "$SYSFS/class/block/$name/..") || fail "cannot find the disk of $name"
+[ -d "$disk" ] || fail "cannot find the disk of $name"
+
+data="" live=""
+for entry in "$disk"/*/; do
+    [ -r "${entry}uevent" ] || continue
+    while IFS= read -r line; do
+        case $line in
+            PARTNAME=ECP-DATA) data=${entry%/}; data=${data##*/} ;;
+            PARTNAME=ECP-LIVE) live=${entry%/}; live=${live##*/} ;;
+        esac
+    done < "${entry}uevent"
+done
+volume=${data:-$live}
+[ -n "$volume" ] || fail "the disk of $name has no data volume (no partition named ECP-DATA or ECP-LIVE)"
+wait_for "$DEV/$volume" "the data volume $volume did not appear"
+
+mkdir -p "$OUT" || fail "cannot create $OUT"
+ln -sf "$DEV/$volume" "$OUT/data" || fail "cannot link the data volume"
+echo "ecp-data-link: the data volume is $DEV/$volume (on the disk of $name)"

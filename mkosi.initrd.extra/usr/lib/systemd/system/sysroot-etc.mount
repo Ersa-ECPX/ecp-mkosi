@@ -2,10 +2,9 @@
 Description=Persistent overlay for /etc
 Documentation=file:///usr/share/doc/foundation/README.md
 DefaultDependencies=no
-# /sysroot/var comes from systemd.mount-extra= on the kernel command line (a built image names its data volume by
-# label; an installed system by PARTUUID, see deploy.py), which the initrd's fstab generator turns into a mount
-# unit before this unit is looked at. The overlay's directories exist on the data volume already (image build,
-# or the installer's seed).
+# /sysroot/var is mounted by sysroot-var.mount from the data volume of the disk the system started from
+# (ecp-data-device.service). The overlay's directories exist on the data volume already (image build, or the
+# installer's seed).
 RequiresMountsFor=/sysroot/var
 After=initrd-parse-etc.service
 Before=initrd-fs.target

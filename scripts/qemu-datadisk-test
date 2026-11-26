@@ -1,0 +1,82 @@
+#!/usr/bin/env python3
+"""Check that /var and /home come from the disk the system started from, even when another disk carries the same labels.
+
+    scripts/qemu-datadisk-test --disk DISK.raw [--installer MEDIUM.raw] [--work-dir DIR]
+
+DISK is an installed disk (for example the one scripts/qemu-fallback-test leaves in mkosi.output/qemu-test) built with the
+data-volume lookup (mkosi.initrd.extra/usr/libexec/ecp/data-link). The test copies it, gives the copy its own ESP identity (a
+leftover install has its own; a plain copy would not), and boots with both attached, in both orders and then with the installer
+medium as well. Each boot must report that /var and /home are on the same disk as the ESP it started from (/boot). A system that
+still mounted by LABEL=ECP-DATA could take the other disk's volume and fail.
+
+Needs qemu-system-x86_64, OVMF, sfdisk and an image built after the lookup was added. About 10 minutes. Not run yet.
+"""
+import argparse
+import importlib.machinery
+import importlib.util
+import os
+import shutil
+import subprocess
+import sys
+import uuid
+
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
+
+def load_harness():
+    loader = importlib.machinery.SourceFileLoader("qft", os.path.join(ROOT, "scripts", "qemu-fallback-test"))
+    spec = importlib.util.spec_from_loader("qft", loader)
+    module = importlib.util.module_from_spec(spec)
+    loader.exec_module(module)
+    return module
+
+
+# /boot is an automount, so its mount source says nothing; the disk the system started from is the one that holds the ESP
+# systemd-boot recorded (LoaderDevicePartUUID).
+REPORT = ('echo VERSION=$(. /usr/lib/os-release; echo $IMAGE_VERSION); '
+          'disk() { lsblk -no PKNAME "$(findmnt -no SOURCE "$1" | sed "s/\\[.*//")" | head -n 1; }; '
+          'esp=$(tail -c +5 /sys/firmware/efi/efivars/LoaderDevicePartUUID-4a67b082-0a4c-41cf-b6c7-440b29bb8c4f | tr -d "\\0" | tr A-Z a-z); '
+          'echo BOOT_DISK=$(lsblk -no PKNAME "$(readlink -f /dev/disk/by-partuuid/$esp)" | head -n 1); '
+          'echo VAR_DISK=$(disk /var); echo HOME_DISK=$(disk /home); echo DATA_LINK=$(readlink /run/ecp/data)')
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
+    parser.add_argument("--disk", required=True, help="an installed disk image")
+    parser.add_argument("--installer", help="the installer medium to attach in the last run")
+    parser.add_argument("--work-dir", default=os.path.join(ROOT, "mkosi.output", "qemu-datadisk"))
+    args = parser.parse_args()
+    qft = load_harness()
+    work = os.path.abspath(args.work_dir)
+    os.makedirs(work, exist_ok=True)
+    first, second = os.path.join(work, "a.raw"), os.path.join(work, "b.raw")
+    shutil.copy(qft.VARS, os.path.join(work, "vars.fd"))
+    subprocess.run(["cp", "--sparse=always", args.disk, first], check=True)
+    subprocess.run(["cp", "--sparse=always", args.disk, second], check=True)
+    # the copy is a leftover install with an identity of its own: new partition UUIDs (the ESP's is how the system knows its disk)
+    for number in (1, 2, 3, 4, 5, 6, 7):
+        subprocess.run(["sfdisk", "--part-uuid", second, str(number), str(uuid.uuid4())], check=True, capture_output=True)
+    failures = []
+
+    def run(name, drives):
+        done, text, _log = qft.run_vm(name, work, [(path, False) for path in drives] if not args.installer else
+                                      [(p, p == args.installer) for p in drives], "vd" + "abcdef"[len(drives)], REPORT, 600)
+        fields = dict(line.split("=", 1) for line in text.splitlines() if "=" in line and line.split("=", 1)[0] in
+                      ("VERSION", "BOOT_DISK", "VAR_DISK", "HOME_DISK", "DATA_LINK"))
+        ok = done and fields.get("BOOT_DISK") and fields.get("BOOT_DISK") == fields.get("VAR_DISK") == fields.get("HOME_DISK")
+        print(f"  {'PASS' if ok else 'FAIL'}  {name}: started from {fields.get('BOOT_DISK', '?')}, /var on {fields.get('VAR_DISK', '?')}, "
+              f"/home on {fields.get('HOME_DISK', '?')}, link {fields.get('DATA_LINK', '?')}", flush=True)
+        if not ok:
+            failures.append(name)
+            print(text[-1200:])
+
+    run("copy attached second", [first, second])
+    run("copy attached first", [second, first])
+    if args.installer:
+        run("with the installer medium", [first, second, args.installer])
+    print("\n" + ("ALL CHECKS PASSED" if not failures else f"{len(failures)} CHECK(S) FAILED"))
+    return 1 if failures else 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

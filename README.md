@@ -68,6 +68,7 @@ scripts/qemu-verity-test --image DISK                                    # verit
 scripts/qemu-secureboot-test --image DISK --uki UKI                      # Secure Boot enforcement (throwaway key)
 scripts/qemu-fallback-test --archive NEWER-UPDATE.tar.zst                # install, update, break the new slot, fall back (see its header)
 scripts/qemu-try install|boot|reset                                  # try the system by hand in a QEMU window (blank disk, installer medium)
+scripts/qemu-datadisk-test --disk DISK.raw                        # /var and /home come from the booted disk even next to another ECP disk
 ```
 
 The QEMU tests need `qemu-system-x86_64`, OVMF and e2fsprogs; they use KVM when available. The disk tests take an installed

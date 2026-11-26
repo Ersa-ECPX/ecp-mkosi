@@ -35,7 +35,7 @@ A read-only variant (RAM disks) was tried and removed: it dropped to emergency m
 3. Stream the root image and hash tree into slot A, read both back and compare SHA-256.
 4. Rename the kernel image to `ecp_<v>+3.efi` (`mren`, no mount). Only now can the disk boot, so an interrupted
    install never looks bootable.
-5. `fsync`.
+5. `fsync`, then register the disk with the firmware (`efibootmgr`, best effort) so it comes first even with the medium still plugged in.
 
 Layout: ESP 1 GiB, recovery (reserved, empty), root slots A and B 8 GiB each with 96 MiB hash partitions, `ECP-DATA` btrfs
 with `var` and `home` taking the rest. Known mismatch: `layout.py` sets recovery to 2 GiB and

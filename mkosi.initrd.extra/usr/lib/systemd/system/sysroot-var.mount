@@ -1,0 +1,16 @@
+[Unit]
+Description=Data volume: /var
+Documentation=file:///usr/share/doc/foundation/README.md
+DefaultDependencies=no
+# The volume is the one on the disk this system started from (ecp-data-device.service), not whichever disk carries a
+# label: see /usr/libexec/ecp/data-link. Mounted before switch-root, like /var always was.
+Requires=ecp-data-device.service
+After=ecp-data-device.service
+Before=initrd-fs.target
+Conflicts=umount.target
+
+[Mount]
+What=/run/ecp/data
+Where=/sysroot/var
+Type=btrfs
+Options=subvol=var

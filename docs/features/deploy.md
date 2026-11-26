@@ -46,8 +46,11 @@ running root, a disk with a mounted partition, a read-only or too small disk, a 
 3. Stream root and hash tree into slot A (checksums compared with the manifest), then read both back and compare SHA-256.
 4. Rename the kernel image to `ecp_<v>+3.efi` (`mren`, no mount). Only now can the disk boot, so an interrupted install never
    looks bootable. Then `fsync`.
-
-No firmware boot entry is written; firmware must find the disk through `EFI/BOOT/BOOTX64.EFI`.
+5. Register the disk with the firmware: `efibootmgr` creates a boot entry "Ersa Compute Platform" for the new ESP
+   (`\EFI\BOOT\BOOTX64.EFI`) and puts it first in the boot order, replacing entries of earlier installs. Without it the
+   firmware finds the disk only through its fallback path, and with the installer medium still plugged in it often starts the
+   medium again, whichever disk was chosen. Best effort: a failure is reported as a note and the disk stays bootable. Not
+   done for a file target or a computer not started through UEFI. Unit-tested with a fake `efibootmgr`; not run on a real firmware or in QEMU yet.
 
 ## Unattended installs: preseed
 
@@ -72,8 +75,8 @@ settings, enrolling in management.
 - No `--image FILE` source, so an installer USB cannot be written from an installed system yet.
 - No unattended user creation; GNOME Initial Setup creates the account on first boot.
 - No encryption or choice of data filesystem.
-- The data volume is found by `LABEL=ECP-DATA` in the kernel command line, so two disks with that label attached at once are
-  ambiguous. A generator that finds the volume on the booted disk is planned.
+- The firmware boot entry is made with `efibootmgr` (best effort); on a computer not started through UEFI, or when it fails, the disk
+  is still bootable through the firmware's fallback path but may have to be chosen in the boot menu.
 
 See also: [graphical installer](installer-app.md), [installer medium](live-medium.md), [design notes](../installer.md).
 

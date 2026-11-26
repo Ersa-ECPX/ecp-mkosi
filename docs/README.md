@@ -43,4 +43,4 @@ designed to.
 - Real hardware, TPM measurement, disk encryption and a recovery system are not built or not tested.
 - A hung initrd does not reboot by itself; interrupted installs and signed archives on a signed boot are untested: see [updates](features/updates.md).
 - A bundle merged on a booted image under enforcing SELinux has not been run.
-- `/var` and `/home` are found by `LABEL=ECP-DATA`; two ECP disks attached together can confuse that ([dm-verity](features/dm-verity.md)).
+- The data volume is found by the disk the system started from (two ECP disks no longer compete); written and unit-tested, not yet booted ([storage](features/storage-and-persistence.md)).

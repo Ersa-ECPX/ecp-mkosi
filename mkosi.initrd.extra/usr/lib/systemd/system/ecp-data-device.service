@@ -1,0 +1,14 @@
+[Unit]
+Description=Find the data volume of the disk this system started from
+Documentation=file:///usr/share/doc/foundation/README.md
+DefaultDependencies=no
+# systemd-boot's LoaderDevicePartUUID lives in an EFI variable; udev has to have made the partition's device node
+Wants=sys-firmware-efi-efivars.mount
+After=sys-firmware-efi-efivars.mount systemd-udevd.service
+Before=sysroot-var.mount sysroot-home.mount
+Conflicts=umount.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/libexec/ecp/data-link
