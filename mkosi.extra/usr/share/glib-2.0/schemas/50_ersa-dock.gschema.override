@@ -1,0 +1,4 @@
+# The dock's default apps, in order. An id with no installed app is skipped by the shell, so the Flatpak store
+# (installed on first online by foundation-default-apps) shows up once it is there. People change the dock freely.
+[org.gnome.shell]
+favorite-apps=['firefox.desktop', 'org.gnome.Nautilus.desktop', 'io.github.kolunmi.Bazaar.desktop', 'dev.ersa.Dialer.desktop', 'org.gnome.TextEditor.desktop','org.gnome.Settings.desktop', 'org.ersa.Deck.desktop']
