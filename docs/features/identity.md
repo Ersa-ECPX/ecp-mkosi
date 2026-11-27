@@ -9,7 +9,7 @@ The operating system works fully without an identity.
 ## Using it
 
 ```
-foundation identity status      # provider, and whether you are signed in
+foundation identity status      # whether you are signed in
 foundation identity check       # does the provider offer what this computer needs (discovery, device sign-in, refresh, scopes)
 foundation identity login       # prints an address and a code: approve it on any device
 foundation identity logout      # revokes the session at the provider (if it offers that) and forgets it here
@@ -20,8 +20,8 @@ token (`offline_access`) keeps you signed in; a revocation endpoint makes sign-o
 
 ## In Deck
 
-Deck's **Ersa ID** page (sidebar, "Account") shows your photo, name and email from the provider, the provider's address, and
-**Sign In** / **Sign Out**. Sign In shows a code and a button that opens the sign-in page; approving it on any device finishes it.
+Deck's **Ersa ID** page (sidebar, "Account") shows your photo, name and email from the provider and
+**Sign In** / **Sign Out** (not the provider's address or client id). Sign In shows a code and a button that opens the sign-in page; approving it on any device finishes it.
 There is no devices list: no devices service exists yet.
 
 **Offered once after the first login.** A user service (`foundation-ersa-id-offer.path`) waits for Initial Setup to finish, then runs
