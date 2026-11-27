@@ -15,8 +15,9 @@ without one it asks for a passphrase. A recovery key always works.
   and the slot trusts that key. Every update brings a kernel image signed the same way, so the disk still unlocks; an image nobody
   signed, or a different computer's TPM, does not.
 - The initrd unlocks the volume (`/usr/libexec/ecp/data-link`, run by `ecp-data-device.service` after the TPM is ready and the
-  measurement barrier `systemd-pcrphase-initrd`) with `systemd-cryptsetup`. If the TPM cannot release the key, it asks on the screen
-  or the serial console for the passphrase or the recovery key.
+  measurement barrier `systemd-pcrphase-initrd`) with `systemd-cryptsetup`. If the TPM cannot release the key, it asks for the
+  passphrase or the recovery key. On a screen the question is drawn by the Ersa boot theme (Plymouth: the prompt text and a `*` per
+  typed character, both themes); with `plymouth.enable=0` it comes to the console instead, which is how the QEMU test answers it.
 - The signer is the Secure Boot key of the build ([signing keys](../../build/security/README.md)), set with `SignExpectedPcr=` in
   `mkosi.conf`.
 
@@ -41,10 +42,23 @@ D-Bus: `Deploy.DeployEncrypted`.
 - The unlock needs a TPM 2.0 that Linux exposes (`/dev/tpmrm0`). Without Secure Boot, the TPM policy does not stop someone who can
   change the boot loader, which is what Secure Boot is for.
 - Not built: encryption of a system installed without `--encrypt` (a reinstall is needed), changing keys in Deck, per-user encrypted
-  homes (`systemd-homed`), a FIDO2 key slot, an installer page (the command line only so far).
+  homes (`systemd-homed`), a FIDO2 key slot. The installer has a "Protect your data" page (on by default; with a TPM nothing is
+  asked, without one a passphrase is); there is no encryption page in Deck yet.
 
 ## Tested
 
-Unit tests: the commands and their order, that no secret is on a command line, the refusals (no TPM and no passphrase, an image
-without a signed policy), the initrd helper against fake devices. **Not yet run in QEMU with a TPM** (`scripts/qemu-encryption-test`,
-needs an image built with this support); not run on hardware.
+Unit and GUI tests: the commands and their order, that no secret is on a command line, the refusals (no TPM and no passphrase, an
+image without a signed policy), the initrd helper against fake devices, the installer page and recovery-key screen.
+
+In QEMU with a software TPM (swtpm), on the built installer and image (`sudo scripts/qemu-encryption-test`, about 15 minutes):
+
+- **A, same TPM:** installs encrypted; boots with no prompt; `/var` and `/home` are on the unlocked volume; LUKS2 with a TPM2 token;
+  the recovery key opens it.
+- **B, another TPM:** the boot stops at the unlock prompt and the recovery key finishes it with the data intact.
+- **C, no TPM, passphrase:** the boot asks for the passphrase and typing it finishes the boot.
+- The on-screen prompt of the boot theme was checked in a screenshot (typed characters shown as `*`). The theme change that moves the
+  prompt below the progress bar was not looked at again after it.
+
+Not tested: **D**, that the TPM still unlocks after an update (the script has it; it needs `--archive` of a newer signed image, see
+`scripts/qemu-fallback-test`); the installer's encryption page in a booted installer; real hardware; Secure Boot with a real key
+database (swtpm has no endorsement certificates, and the firmware here has Secure Boot off); a TPM with only the SHA-1 bank.
