@@ -33,6 +33,18 @@ at the end: write it down and keep it away from the computer. The service never 
 a job: they are staged in a private file that the worker reads once and deletes, and tools get them through their environment.
 D-Bus: `Deploy.DeployEncrypted`.
 
+## In Deck
+
+Deck's **Encryption** page (System) shows whether the files are encrypted and how they can be unlocked: this computer (the TPM), the
+recovery key, a passphrase, a security key, and the cipher. It is read only: adding, removing or changing keys is not offered yet.
+
+It asks `Manager.GetEncryptionStatus` (no authorization, like `GetSystemInfo`), which reads the volume's LUKS header with
+`cryptsetup luksDump --dump-json-metadata` in a worker, and returns counts only, never key material. A key slot is told by the token that
+names it (`systemd-tpm2`, `systemd-recovery`, `systemd-fido2`). The recovery key the installer makes is a password slot with no token,
+so one password slot and no recovery token is shown as the recovery key, and a passphrase is shown only when there is another one; this
+is an inference from the slot count, not a check of what a slot holds. A volume that is not LUKS, or no data volume mount, is shown as not
+encrypted; an unreadable header is an error, not a guess.
+
 ## Limits
 
 - Only the signed PCR 11 policy is bound. Not bound: PCR 7 (the Secure Boot state), so a computer whose Secure Boot is turned off
@@ -43,11 +55,11 @@ D-Bus: `Deploy.DeployEncrypted`.
   change the boot loader, which is what Secure Boot is for.
 - Not built: encryption of a system installed without `--encrypt` (a reinstall is needed), changing keys in Deck, per-user encrypted
   homes (`systemd-homed`), a FIDO2 key slot. The installer has a "Protect your data" page (on by default; with a TPM nothing is
-  asked, without one a passphrase is); there is no encryption page in Deck yet.
+  asked, without one a passphrase is); Deck has a read-only Encryption page (below).
 
 ## Tested
 
-Unit and GUI tests: the commands and their order, that no secret is on a command line, the refusals (no TPM and no passphrase, an
+Unit and GUI tests: the status reading (fake `cryptsetup`) and the Deck page in English and Hindi; the commands and their order, that no secret is on a command line, the refusals (no TPM and no passphrase, an
 image without a signed policy), the initrd helper against fake devices, the installer page and recovery-key screen.
 
 In QEMU with a software TPM (swtpm), on the built installer and image (`sudo scripts/qemu-encryption-test`, about 15 minutes):
@@ -63,6 +75,6 @@ In QEMU with a software TPM (swtpm), on the built installer and image (`sudo scr
 - The on-screen prompt of the boot theme was checked in a screenshot (typed characters shown as `*`). The theme change that moves the
   prompt below the progress bar was not looked at again after it.
 
-Not tested: the installer's encryption page in a booted installer; real hardware; Secure Boot with a real key database (swtpm has no
+Not tested: the Deck page on a booted encrypted system (only `cryptsetup` output as the tests fake it); the installer's encryption page in a booted installer; real hardware; Secure Boot with a real key database (swtpm has no
 endorsement certificates, and the firmware here has Secure Boot off); a TPM with only the SHA-1 bank; an update signed by a different
 key (it should ask for the recovery key, not checked).
