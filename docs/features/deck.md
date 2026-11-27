@@ -11,6 +11,7 @@ authorizes, like the `foundation` CLI. Python, GTK 4, libadwaita.
 | Group | Page | Does | Calls |
 | --- | --- | --- | --- |
 | | Overview | the running version and whether this start was confirmed good; the system's facts (name, version, base, architecture, developer mode), the versions of Deck and `foundationd`, the project website | `Boot.GetBootState`, `Manager.GetSystemInfo`, `GetStatus`, `Version` |
+| Account | Ersa ID | profile, sign in and out ([identity](identity.md)) | the configuration, the provider |
 | Software | Updates | check, install the newest, install from a file (signed or, on request, unsigned), restart, automatic-update switches | `Updates.*`, `Config` |
 | | Bundles and Extensions | installed bundles with their packages, ready-made bundles (notice shown first), single RPMs as extensions after a compatibility report | `Compat.*` |
 | | Repositories | list, turn on and off, refresh, add (shows the key's fingerprint first) and remove your own; find a package and add it to a bundle | `Repos.*` |
@@ -18,7 +19,7 @@ authorizes, like the `foundation` CLI. Python, GTK 4, libadwaita.
 | | Base Packages | searchable read-only list of what the image contains | `Manager.ListBasePackages` |
 | System | Boot Slots | both slots, start the other once or always, empty a standby slot, restart | `Boot.*` |
 | | Appearance | boot splash light or dark, shown as chosen | `Boot.GetSplash`, `SetSplash` |
-| | Remote Access | SSH on or off, password sign-in, authorized keys | `Remote.*` |
+| | Remote Access | SSH on or off, authorized keys (sign-in by key only) | `Remote.*` |
 | | Advanced | every registered setting, grouped, typed from the schema | `Config.*` |
 | History | Activity | what the system did on request, with each job's log | `Manager.ListJobs`, `Job.Logs` |
 

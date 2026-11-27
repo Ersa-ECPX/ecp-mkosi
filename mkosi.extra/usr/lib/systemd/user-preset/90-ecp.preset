@@ -2,6 +2,8 @@
 enable ersa-bluetooth.service
 # Records that first-boot setup is complete, after GNOME Initial Setup finishes.
 enable foundation-provisioning.path
+# Offers Ersa ID sign-in once after the first login (only if a provider is set up; Not Now is final).
+enable foundation-ersa-id-offer.path
 # Tells the user when an installed system update waits for a restart.
 enable foundation-update-notify.path
 enable foundation-update-notify.service

@@ -1,6 +1,14 @@
-# Settings of the Ersa Compute Platform installer program. Same format as a preseed file (see docs/features/deploy.md).
-# To change them for one medium, put the same lines in /etc/foundation/installer.preseed on it; that file wins.
+# Default settings of the Ersa Compute Platform installer medium. Same format as a preseed file (see docs/features/deploy.md).
+# The installer program uses the installer.* lines; the rest is copied into the installed system's configuration
+# (/etc/foundation/foundation.conf.d/50-preseed.conf), where a later `foundation config set` still wins.
+# To change them for one medium, put a file with the same name in /etc/foundation/installer.preseed on it; that file wins.
 
 # The service that tells the installer which time zone your network address is in. It sees the public address of
 # this computer, nothing else. Empty turns detection off (you pick the zone yourself). Must be an https:// address.
 installer.timezone_url=https://ipapi.co/timezone/
+
+# Ersa ID, the identity provider. A company puts its own OpenID Connect provider here (issuer and client id together),
+# or identity.enabled=false to turn sign-in off. (These are also the built-in defaults.)
+identity.enabled=true
+identity.issuer=https://id.ersa.dev
+identity.client_id=prism_l5bUeHzyXLJ4EnhRqnwMXg

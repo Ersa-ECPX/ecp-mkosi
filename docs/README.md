@@ -28,6 +28,8 @@ designed to.
 [configuration](features/configuration.md) · [deploy](features/deploy.md) · [system extensions](features/system-extensions.md) ·
 [remote access](features/remote-access.md) · designs: [foundationd](foundationd.md), [provisioning](provisioning.md)
 
+**Identity:** [sign in with Ersa ID](features/identity.md)
+
 **Software:** [applications](features/applications.md) · [repositories and bundles](features/repositories-and-bundles.md) ·
 [multimedia and fonts](features/multimedia-and-fonts.md)
 
