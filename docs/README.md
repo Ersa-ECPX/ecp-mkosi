@@ -21,7 +21,7 @@ designed to.
 ## Pages
 
 **Architecture:** [boot and slots](features/boot-and-slots.md) · [storage](features/storage-and-persistence.md) ·
-[SELinux](features/selinux.md) · [updates](features/updates.md) · [hosting updates](ota-hosting.md) ·
+[SELinux](features/selinux.md) · [encryption](features/encryption.md) · [updates](features/updates.md) · [hosting updates](ota-hosting.md) ·
 [Secure Boot](features/secure-boot.md) · [dm-verity](features/dm-verity.md)
 
 **Foundation:** [management service](features/management-service.md) · [command line](features/foundation-cli.md) ·
@@ -34,7 +34,7 @@ designed to.
 [multimedia and fonts](features/multimedia-and-fonts.md)
 
 **Installer:** [graphical installer](features/installer-app.md) · [installer medium](features/live-medium.md) ·
-[design notes](installer.md)
+[design notes](installer.md) · [translations](features/translations.md)
 
 **Desktop:** [branding](features/branding.md) · [branding sources](branding.md)
 

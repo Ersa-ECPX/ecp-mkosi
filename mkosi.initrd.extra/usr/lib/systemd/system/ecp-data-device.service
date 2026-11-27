@@ -5,6 +5,10 @@ DefaultDependencies=no
 # systemd-boot's LoaderDevicePartUUID lives in an EFI variable; udev has to have made the partition's device node
 Wants=sys-firmware-efi-efivars.mount
 After=sys-firmware-efi-efivars.mount systemd-udevd.service
+# An encrypted volume is unlocked with the TPM: after the TPM is up, and after the measurement barrier (systemd-pcrphase-initrd) that the
+# signed policy of the kernel image names, which is why this waits for cryptsetup-pre.target (the barrier is ordered before it).
+After=tpm2.target cryptsetup-pre.target
+Wants=cryptsetup-pre.target
 Before=sysroot-var.mount sysroot-home.mount
 Conflicts=umount.target
 

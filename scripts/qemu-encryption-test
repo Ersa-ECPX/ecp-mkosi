@@ -1,0 +1,292 @@
+#!/usr/bin/env python3
+"""Install with an encrypted data volume in QEMU with a software TPM (swtpm), and check that the TPM unlocks it, that the other ways in
+work, and that a computer with another TPM does not get in by itself.
+
+    scripts/qemu-encryption-test [--installer IMG] [--archive FILE.tar.zst] [--work-dir DIR] [--probe]
+
+Scenarios (each boot is its own QEMU run; a small program is injected through a systemd credential and reports through a second disk,
+as in scripts/qemu-fallback-test; Secure Boot is off, which does not matter for the signed-policy TPM slot):
+  A  the TPM        install with --encrypt on a machine with a TPM; the next boot must start unattended with /var on a dm-crypt device;
+                    the volume must have a TPM slot and a recovery slot, and the recovery key must open it.
+  B  another TPM    the same disk with a fresh, empty TPM (another computer, or a cleared one): the TPM cannot release the key, so the
+                    boot must stop at the unlock prompt; typing the recovery key must then finish the boot.
+  C  no TPM         install on a machine without a TPM with a passphrase; the boot must ask for it, and typing it must finish the boot.
+  D  an update      (with --archive) the TPM still unlocks after an update: a different, signed kernel image is started once and must
+                    reach the same /var without a prompt. This is what the signed policy is for.
+--probe only starts the installer medium with a TPM and reports what the guest sees (device, PCRs, the kernel image's signature files):
+the first thing to run on a new image.
+
+Needs: swtpm, qemu-system-x86_64, OVMF, an installer medium built with this repository's encryption support (scripts/build --profile root,
+then --profile installer). KVM is used when available. About 25 minutes for A to C.
+"""
+
+import argparse
+import base64
+import glob
+import os
+import re
+import shutil
+import socket
+import subprocess
+import sys
+import tempfile
+import time
+
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+CODE = "/usr/share/edk2/x64/OVMF_CODE.4m.fd"
+VARS = "/usr/share/edk2/x64/OVMF_VARS.4m.fd"
+PRELUDE = "exec >/dev/{dev} 2>&1; "
+EPILOGUE = "; echo ECP-END; sync; sleep 3; systemctl poweroff"
+# The image's command line ends with console=tty0, which makes the unlock prompt appear on the screen; this test adds console=ttyS0
+# last, and plymouth.enable=0 (otherwise Plymouth, which the initrd has, draws the prompt on the screen), so that the prompt comes to the
+# serial console, where the test can read and answer it (kernel-cmdline-extra below).
+PASS_PROMPT = re.compile(r"(?i)(please enter (the )?passphrase|enter passphrase)")
+
+
+def unit(script, dev, wait_for_system=True):
+    prelude = PRELUDE.format(dev=dev) + ("timeout 300 systemctl is-system-running --wait; " if wait_for_system else "")
+    encoded = base64.b64encode((prelude + script + EPILOGUE).encode()).decode()
+    return ("[Unit]\nDescription=test\nAfter=multi-user.target\n\n[Service]\nType=simple\n"
+            f"ExecStart=/bin/sh -c 'echo {encoded} | base64 -d | sh'\n")
+
+
+class Tpm:
+    """A software TPM 2.0 with its own state directory; `restart()` brings it back with the same state (a reboot of the computer)."""
+
+    def __init__(self, work, name):
+        self.state = os.path.join(work, f"tpm-{name}")
+        self.sock = os.path.join(work, f"tpm-{name}.sock")
+        self.process = None
+        shutil.rmtree(self.state, ignore_errors=True)
+        os.makedirs(self.state)
+        # no endorsement certificates: making them needs write access to a system-wide CA directory, and systemd does not use them here
+        subprocess.run(["swtpm_setup", "--tpm2", "--tpmstate", self.state, "--createek", "--pcr-banks", "sha256", "--display"],
+                       check=True, capture_output=True)
+
+    def start(self):
+        if os.path.exists(self.sock):
+            os.unlink(self.sock)
+        self.process = subprocess.Popen(["swtpm", "socket", "--tpm2", "--tpmstate", f"dir={self.state}",
+                                         "--ctrl", f"type=unixio,path={self.sock}", "--flags", "not-need-init,startup-clear",
+                                         "--terminate"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        for _ in range(100):
+            if os.path.exists(self.sock):
+                return self
+            time.sleep(0.05)
+        raise SystemExit("swtpm did not start")
+
+    def stop(self):
+        if self.process and self.process.poll() is None:
+            self.process.terminate()
+            try:
+                self.process.wait(5)
+            except subprocess.TimeoutExpired:
+                self.process.kill()
+
+    def qemu_args(self):
+        return ["-chardev", f"socket,id=chrtpm,path={self.sock}", "-tpmdev", "emulator,id=tpm0,chardev=chrtpm",
+                "-device", "tpm-tis,tpmdev=tpm0"]
+
+
+def run_vm(name, work, drives, result_dev, script, timeout, tpm=None, types=None, wait_for_system=True):
+    """One boot. `types` is [(prompt pattern, text to type)]: typed on the serial console when the pattern appears, once each (the
+    unlock prompt). Returns (reported, result text, serial text); reported is whether the program ran to its end."""
+    result = os.path.join(work, f"{name}.result")
+    serial_log = os.path.join(work, f"{name}.serial")
+    for path in (result, serial_log):
+        if os.path.exists(path):
+            os.unlink(path)
+    subprocess.run(["truncate", "-s", "8M", result], check=True)
+    kvm = os.access("/dev/kvm", os.R_OK | os.W_OK)
+    credential = base64.b64encode(unit(script, result_dev, wait_for_system).encode()).decode()
+    port_socket = os.path.join(work, f"{name}.console")
+    if os.path.exists(port_socket):
+        os.unlink(port_socket)
+    cmd = ["qemu-system-x86_64", "-machine", "q35" + (",accel=kvm" if kvm else ""), "-cpu", "host" if kvm else "max",
+           "-m", "6144", "-smp", "4", "-no-reboot",
+           "-drive", f"if=pflash,format=raw,readonly=on,file={CODE}",
+           "-drive", f"if=pflash,format=raw,file={os.path.join(work, 'vars.fd')}"]
+    for path, snapshot in drives:
+        cmd += ["-drive", f"file={path},format=raw,if=virtio,cache=unsafe" + (",snapshot=on" if snapshot else "")]
+    if tpm:
+        cmd += tpm.qemu_args()
+    cmd += ["-drive", f"file={result},format=raw,if=virtio,cache=unsafe", "-nic", "user", "-device", "virtio-rng-pci",
+            "-display", "none", "-vga", "std", "-monitor", "none", "-serial", f"unix:{port_socket},server=on,wait=off",
+            "-smbios", f"type=11,value=io.systemd.credential.binary:systemd.extra-unit.ecp-test.service={credential}",
+            "-smbios", "type=11,value=io.systemd.stub.kernel-cmdline-extra=systemd.wants=ecp-test.service plymouth.enable=0 console=ttyS0,,115200n8"]
+    process = subprocess.Popen(cmd, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
+    for _ in range(200):
+        if os.path.exists(port_socket):
+            break
+        time.sleep(0.05)
+    console = socket.socket(socket.AF_UNIX)
+    console.connect(port_socket)
+    console.settimeout(1.0)
+    pending = list(types or [])
+    log = bytearray()
+    end = time.monotonic() + timeout
+    try:
+        while time.monotonic() < end and process.poll() is None:
+            try:
+                chunk = console.recv(65536)
+            except socket.timeout:
+                continue
+            if not chunk:
+                break
+            log += chunk
+            text = re.sub(r"\x1b\[[0-9;?=]*[a-zA-Z]", "", log.decode("utf-8", errors="replace"))
+            for item in list(pending):
+                if re.search(item[0], text):
+                    time.sleep(1)
+                    console.sendall(item[1].encode() + b"\r")
+                    pending.remove(item)
+    finally:
+        if process.poll() is None:
+            process.kill()
+        process.communicate()
+        console.close()
+    with open(serial_log, "wb") as handle:
+        handle.write(log)
+    with open(result, "rb") as handle:
+        text = re.sub(rb"\0+", b"", handle.read()).decode("utf-8", errors="replace")
+    serial = re.sub(r"\x1b\[[0-9;?=]*[a-zA-Z]", "", log.decode("utf-8", errors="replace")).replace("\r", "")
+    return "ECP-END" in text, text, serial
+
+
+PROBE = ("echo TPM-DEVICES=$(ls /dev/tpm* 2>&1 | tr '\\n' ' '); systemd-analyze has-tpm2; echo HAS-TPM2-RC=$?; "
+         "echo PCR11=$(cat /sys/class/tpm/tpm0/pcr-sha256/11 2>&1); echo PCR7=$(cat /sys/class/tpm/tpm0/pcr-sha256/7 2>&1); "
+         "echo SIGFILES=$(ls -la /run/systemd/tpm2-pcr-signature.json /run/systemd/tpm2-pcr-public-key.pem /.extra 2>&1 | tr '\\n' ' '); "
+         "echo CRYPT-TOOLS=$(ls /usr/lib/systemd/systemd-cryptsetup /usr/bin/systemd-cryptenroll /usr/sbin/cryptsetup 2>&1 | tr '\\n' ' '); "
+         "echo MODULES=$(lsmod | grep -E 'tpm|dm_crypt' | tr '\\n' ' '); echo FAILED-UNITS=$(systemctl --failed --no-legend | awk '{print $1}' | tr '\\n' ' ')")
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
+    parser.add_argument("--installer", help="the installer medium (default: the newest mkosi.output/ecp-installer_*.raw)")
+    parser.add_argument("--archive", help="an update of another version, for scenario D (see scripts/qemu-fallback-test)")
+    parser.add_argument("--work-dir", default=os.path.join(ROOT, "mkosi.output", "qemu-encryption"))
+    parser.add_argument("--boot-timeout", type=int, default=240)
+    parser.add_argument("--probe", action="store_true", help="only report what the guest sees of the TPM")
+    parser.add_argument("--only", choices=("A", "B", "C", "D"), action="append", help="run only these scenarios (A is always run first)")
+    args = parser.parse_args()
+    for tool in ("swtpm", "swtpm_setup", "qemu-system-x86_64"):
+        if not shutil.which(tool):
+            sys.exit(f"{tool} is required")
+    installer = args.installer or max(glob.glob(os.path.join(ROOT, "mkosi.output", "ecp-installer_*.raw")), key=os.path.getmtime, default=None)
+    if not installer:
+        sys.exit("need an installer image (scripts/build --profile installer)")
+    installer = os.path.realpath(installer)
+    work = os.path.abspath(args.work_dir)
+    os.makedirs(work, exist_ok=True)
+    failures = []
+
+    def check(title, ok, detail=""):
+        print(f"  {'PASS' if ok else 'FAIL'}  {title}" + (f"  ({detail})" if detail else ""), flush=True)
+        if not ok:
+            failures.append(title)
+
+    def fresh_disk(name):
+        path = os.path.join(work, f"{name}.raw")
+        if os.path.exists(path):
+            os.unlink(path)
+        subprocess.run(["truncate", "-s", "32G", path], check=True)
+        shutil.copy(VARS, os.path.join(work, "vars.fd"))
+        return path
+
+    tpm_a = Tpm(work, "a").start()
+    try:
+        if args.probe:
+            disk = fresh_disk("probe")
+            done, text, log = run_vm("probe", work, [(installer, True), (disk, False)], "vdc", PROBE, 400, tpm=tpm_a)
+            print(text if done else "nothing reported\n" + log[-1500:])
+            return 0 if done else 1
+
+        wanted = set(args.only or ("A", "B", "C", "D"))
+        recovery_key = ""
+        disk_a = None
+        if "A" in wanted or "B" in wanted or "D" in wanted:
+            print("A. install with --encrypt on a machine with a TPM", flush=True)
+            disk_a = fresh_disk("tpm")
+            done, text, log = run_vm(
+                "a-install", work, [(installer, True), (disk_a, False)], "vdc",
+                "foundation deploy install /dev/vdb --yes --encrypt --recovery-key-file /tmp/rk --language en_US.UTF-8 --timezone UTC; "
+                "echo DEPLOY-RC=$?; echo RECOVERY=$(cat /tmp/rk 2>/dev/null); lsblk -o NAME,TYPE,FSTYPE,PARTLABEL /dev/vdb", 1500, tpm=tpm_a)
+            match = re.search(r"RECOVERY=([a-z-]{71})", text)
+            recovery_key = match.group(1) if match else ""
+            check("the installer installed an encrypted system", done and "DEPLOY-RC=0" in text and "Installed  version" in text,
+                  "see a-install.result" if not (done and "DEPLOY-RC=0" in text) else "")
+            check("it unlocks by itself with the TPM and has a recovery key", "unlocks by itself with the TPM" in text and bool(recovery_key))
+            if failures:
+                print(text[-2500:])
+                return 1
+            print("   boot the installed disk with the same TPM", flush=True)
+            tpm_a.stop()
+            tpm_a.start()
+            done, text, log = run_vm(
+                "a-boot", work, [(disk_a, False)], "vdb",
+                "echo VAR-SOURCE=$(findmnt -no SOURCE /var); echo HOME-SOURCE=$(findmnt -no SOURCE /home); "
+                "lsblk -no NAME,TYPE /dev/vda | tr '\\n' ';'; echo; "
+                "dev=$(lsblk -nrpo NAME,PARTLABEL /dev/vda | awk '$2==\"ECP-DATA\"{print $1}'); echo DATA=$dev; "
+                "cryptsetup luksDump $dev | grep -E '^Version|^Keyslots|^Tokens|^  [0-9]+: ' ; "
+                f"echo -n {recovery_key} | cryptsetup open --test-passphrase --key-file=- $dev; echo RECOVERY-RC=$?; "
+                "touch /var/ecp-encryption-test && echo WRITE-OK; cat /proc/cmdline", args.boot_timeout, tpm=tpm_a)
+            check("the encrypted installed system booted without asking for anything", done, "see a-boot.serial" if not done else "")
+            check("/var and /home are on the unlocked volume", "VAR-SOURCE=/dev/mapper/ecp-data" in text and "HOME-SOURCE=/dev/mapper/ecp-data" in text,
+                  (re.search(r"VAR-SOURCE=\S*", text) or [""])[0])
+            check("the volume is LUKS2 with a TPM token", "Version:       \t2" in text.replace(" ", "") or "Version:2" in text.replace(" ", "").replace("\t", "")
+                  or "luks2" in text.lower(), "")
+            check("a TPM2 token is in the header", "systemd-tpm2" in text)
+            check("the recovery key opens the volume", "RECOVERY-RC=0" in text)
+            check("the volume can be written", "WRITE-OK" in text)
+            if not done:
+                print(log[-2500:])
+
+        if "B" in wanted and disk_a:
+            print("B. the same disk on a computer with another TPM", flush=True)
+            tpm_b = Tpm(work, "b").start()
+            try:
+                done, text, log = run_vm(
+                    "b-boot", work, [(disk_a, False)], "vdb",
+                    "echo VAR-SOURCE=$(findmnt -no SOURCE /var); ls /var/ecp-encryption-test && echo DATA-STILL-THERE",
+                    args.boot_timeout, tpm=tpm_b, types=[(PASS_PROMPT, recovery_key)])
+                prompted = bool(PASS_PROMPT.search(log))
+                check("another TPM does not unlock the disk by itself: the boot asked for a passphrase", prompted, "see b-boot.serial")
+                check("typing the recovery key finished the boot with the data intact", done and "DATA-STILL-THERE" in text)
+            finally:
+                tpm_b.stop()
+
+        if "C" in wanted:
+            print("C. install on a machine with no TPM, with a passphrase", flush=True)
+            disk_c = fresh_disk("notpm")
+            passphrase = "correct horse battery staple"
+            # the passphrase file travels on the result disk of this one run: a base64 string inside the program
+            encoded = base64.b64encode((passphrase + "\n").encode()).decode()
+            done, text, log = run_vm(
+                "c-install", work, [(installer, True), (disk_c, False)], "vdc",
+                f"echo {encoded} | base64 -d > /tmp/pass; foundation deploy install /dev/vdb --yes --encrypt --passphrase-file /tmp/pass "
+                "--recovery-key-file /tmp/rk --language en_US.UTF-8 --timezone UTC; echo DEPLOY-RC=$?", 1500)
+            check("the installer installed with a passphrase and no TPM", done and "DEPLOY-RC=0" in text and "unlocks by itself" not in text)
+            if done and "DEPLOY-RC=0" in text:
+                done, text, log = run_vm("c-boot", work, [(disk_c, False)], "vdb",
+                                         "echo VAR-SOURCE=$(findmnt -no SOURCE /var)", args.boot_timeout,
+                                         types=[(PASS_PROMPT, passphrase)])
+                check("the boot asked for the passphrase", bool(PASS_PROMPT.search(log)), "see c-boot.serial")
+                check("typing it finished the boot", done and "VAR-SOURCE=/dev/mapper/ecp-data" in text)
+            else:
+                print(text[-2000:])
+
+        if "D" in wanted:
+            if not args.archive or not disk_a:
+                print("D. skipped: it needs --archive (an update of another version) and scenario A")
+            else:
+                print("D. the TPM still unlocks after an update", flush=True)
+                print("   not run yet: see docs/features/encryption.md (the update archive must carry a kernel image signed like the installed one)")
+    finally:
+        tpm_a.stop()
+
+    print("\n" + ("ALL CHECKS PASSED" if not failures else f"{len(failures)} CHECK(S) FAILED"))
+    return 1 if failures else 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

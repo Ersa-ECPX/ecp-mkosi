@@ -10,13 +10,21 @@
 # and the data volume is the partition of that same disk named ECP-DATA (an installed or development system) or
 # ECP-LIVE (the installer medium). The partition name is read from sysfs, which needs no udev database.
 #
-# Overrides for the tests: ECP_EFIVARS, ECP_SYSFS, ECP_DEV, ECP_RUN (the output directory), ECP_WAIT (seconds to wait).
+# An encrypted data volume (a LUKS container: docs/features/encryption.md) is unlocked here, then linked in place of the partition. The
+# volume's TPM slot is bound to a policy that the kernel image signs, so the TPM releases the key by itself; if it cannot (another
+# computer, a cleared TPM, an image nobody signed), systemd-cryptsetup asks for the passphrase or the recovery key.
+#
+# Overrides for the tests: ECP_EFIVARS, ECP_SYSFS, ECP_DEV, ECP_RUN (the output directory), ECP_WAIT (seconds to wait),
+# ECP_CRYPTSETUP (the unlock tool), ECP_EXTRA (where the kernel image's extra files, such as its PCR signature, are).
 set -u
 EFIVARS=${ECP_EFIVARS:-/sys/firmware/efi/efivars}
 SYSFS=${ECP_SYSFS:-/sys}
 DEV=${ECP_DEV:-/dev}
 OUT=${ECP_RUN:-/run/ecp}
 WAIT=${ECP_WAIT:-60}
+CRYPTSETUP=${ECP_CRYPTSETUP:-/usr/lib/systemd/systemd-cryptsetup}
+EXTRA=${ECP_EXTRA:-/.extra}
+MAPPED=ecp-data
 VARIABLE="$EFIVARS/LoaderDevicePartUUID-4a67b082-0a4c-41cf-b6c7-440b29bb8c4f"
 
 fail() { echo "ecp-data-link: $*" >&2; exit 1; }
@@ -55,6 +63,18 @@ done
 volume=${data:-$live}
 [ -n "$volume" ] || fail "the disk of $name has no data volume (no partition named ECP-DATA or ECP-LIVE)"
 wait_for "$DEV/$volume" "the data volume $volume did not appear"
+
+# "LUKS" followed by 0xba 0xbe at the start of the partition
+if [ "$(head -c 6 "$DEV/$volume" | od -An -tx1 | tr -d ' \n')" = "4c554b53babe" ]; then
+    options="tpm2-device=auto"
+    for signature in "$EXTRA/tpm2-pcr-signature.json" /run/systemd/tpm2-pcr-signature.json; do
+        if [ -r "$signature" ]; then options="$options,tpm2-signature=$signature"; break; fi
+    done
+    echo "ecp-data-link: $DEV/$volume is encrypted; unlocking it ($options)"
+    "$CRYPTSETUP" attach "$MAPPED" "$DEV/$volume" - "$options" || fail "the encrypted data volume could not be unlocked"
+    wait_for "$DEV/mapper/$MAPPED" "the unlocked data volume did not appear"
+    volume=mapper/$MAPPED
+fi
 
 mkdir -p "$OUT" || fail "cannot create $OUT"
 ln -sf "$DEV/$volume" "$OUT/data" || fail "cannot link the data volume"
