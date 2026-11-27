@@ -13,6 +13,7 @@ as in scripts/qemu-fallback-test; Secure Boot is off, which does not matter for 
   C  no TPM         install on a machine without a TPM with a passphrase; the boot must ask for it, and typing it must finish the boot.
   D  an update      (with --archive) the TPM still unlocks after an update: a different, signed kernel image is started once and must
                     reach the same /var without a prompt. This is what the signed policy is for.
+--reuse (with --only D --archive) runs just D on the disk and TPM an earlier run left in the work directory.
 --probe only starts the installer medium with a TPM and reports what the guest sees (device, PCRs, the kernel image's signature files):
 the first thing to run on a new image.
 
@@ -22,7 +23,9 @@ then --profile installer). KVM is used when available. About 25 minutes for A to
 
 import argparse
 import base64
+import functools
 import glob
+import http.server
 import os
 import re
 import shutil
@@ -30,6 +33,7 @@ import socket
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -53,10 +57,12 @@ def unit(script, dev, wait_for_system=True):
 class Tpm:
     """A software TPM 2.0 with its own state directory; `restart()` brings it back with the same state (a reboot of the computer)."""
 
-    def __init__(self, work, name):
+    def __init__(self, work, name, keep=False):
         self.state = os.path.join(work, f"tpm-{name}")
         self.sock = os.path.join(work, f"tpm-{name}.sock")
         self.process = None
+        if keep:                                   # the state of an earlier run (--reuse)
+            return
         shutil.rmtree(self.state, ignore_errors=True)
         os.makedirs(self.state)
         # no endorsement certificates: making them needs write access to a system-wide CA directory, and systemd does not use them here
@@ -113,7 +119,7 @@ def run_vm(name, work, drives, result_dev, script, timeout, tpm=None, types=None
     cmd += ["-drive", f"file={result},format=raw,if=virtio,cache=unsafe", "-nic", "user", "-device", "virtio-rng-pci",
             "-display", "none", "-vga", "std", "-monitor", "none", "-serial", f"unix:{port_socket},server=on,wait=off",
             "-smbios", f"type=11,value=io.systemd.credential.binary:systemd.extra-unit.ecp-test.service={credential}",
-            "-smbios", "type=11,value=io.systemd.stub.kernel-cmdline-extra=systemd.wants=ecp-test.service plymouth.enable=0 console=ttyS0,,115200n8"]
+            "-smbios", "type=11,value=io.systemd.stub.kernel-cmdline-extra=systemd.wants=ecp-test.service plymouth.enable=0 loglevel=6 console=ttyS0,,115200n8"]
     process = subprocess.Popen(cmd, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
     for _ in range(200):
         if os.path.exists(port_socket):
@@ -141,10 +147,12 @@ def run_vm(name, work, drives, result_dev, script, timeout, tpm=None, types=None
                     console.sendall(item[1].encode() + b"\r")
                     pending.remove(item)
     finally:
-        if process.poll() is None:
+        still_running = process.poll() is None
+        if still_running:
             process.kill()
-        process.communicate()
+        _, stderr = process.communicate()
         console.close()
+        log += f"\n[qemu {'was still running and was stopped' if still_running else 'had exited on its own, status ' + str(process.returncode)}; stderr: {stderr.decode(errors='replace')[-500:]}]\n".encode()
     with open(serial_log, "wb") as handle:
         handle.write(log)
     with open(result, "rb") as handle:
@@ -163,9 +171,11 @@ PROBE = ("echo TPM-DEVICES=$(ls /dev/tpm* 2>&1 | tr '\\n' ' '); systemd-analyze 
 def main():
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     parser.add_argument("--installer", help="the installer medium (default: the newest mkosi.output/ecp-installer_*.raw)")
-    parser.add_argument("--archive", help="an update of another version, for scenario D (see scripts/qemu-fallback-test)")
+    parser.add_argument("--archive", help="an update of a newer version, signed like the installer, for scenario D (scripts/make-update-archive X --no-sign, see scripts/qemu-fallback-test)")
     parser.add_argument("--work-dir", default=os.path.join(ROOT, "mkosi.output", "qemu-encryption"))
     parser.add_argument("--boot-timeout", type=int, default=240)
+    parser.add_argument("--reuse", action="store_true",
+                        help="only with --only D: skip the install and A, B, C; use the encrypted disk (tpm.raw) and the TPM state that an earlier run left in --work-dir")
     parser.add_argument("--probe", action="store_true", help="only report what the guest sees of the TPM")
     parser.add_argument("--only", choices=("A", "B", "C", "D"), action="append", help="run only these scenarios (A is always run first)")
     args = parser.parse_args()
@@ -193,7 +203,12 @@ def main():
         shutil.copy(VARS, os.path.join(work, "vars.fd"))
         return path
 
-    tpm_a = Tpm(work, "a").start()
+    if args.reuse and (args.only != ["D"] or not args.archive):
+        sys.exit("--reuse needs --only D and --archive")
+    if args.reuse and not (os.path.exists(os.path.join(work, "tpm.complete")) and os.path.isdir(os.path.join(work, "tpm-a"))):
+        sys.exit("--reuse: no finished encrypted install of an earlier run in the work directory (tpm.complete, tpm.raw, tpm-a: an interrupted "
+                 "or failed run leaves none); run the full test once, to the end of scenario A")
+    tpm_a = Tpm(work, "a", keep=args.reuse).start()
     try:
         if args.probe:
             disk = fresh_disk("probe")
@@ -204,9 +219,15 @@ def main():
         wanted = set(args.only or ("A", "B", "C", "D"))
         recovery_key = ""
         disk_a = None
-        if "A" in wanted or "B" in wanted or "D" in wanted:
+        if args.reuse:
+            disk_a = os.path.join(work, "tpm.raw")
+            shutil.copy(VARS, os.path.join(work, "vars.fd"))      # an old boot entry would point at another test's disk
+            print("A. reused: the encrypted disk and TPM of the earlier run", flush=True)
+        if not args.reuse and ("A" in wanted or "B" in wanted or "D" in wanted):
             print("A. install with --encrypt on a machine with a TPM", flush=True)
             disk_a = fresh_disk("tpm")
+            if os.path.exists(os.path.join(work, "tpm.complete")):
+                os.unlink(os.path.join(work, "tpm.complete"))
             done, text, log = run_vm(
                 "a-install", work, [(installer, True), (disk_a, False)], "vdc",
                 "foundation deploy install /dev/vdb --yes --encrypt --recovery-key-file /tmp/rk --language en_US.UTF-8 --timezone UTC; "
@@ -240,6 +261,9 @@ def main():
             check("the volume can be written", "WRITE-OK" in text)
             if not done:
                 print(log[-2500:])
+            if not failures:                       # this disk installed and booted: --reuse may use it
+                with open(os.path.join(work, "tpm.complete"), "w") as marker:
+                    marker.write("scenario A passed on tpm.raw\n")
 
         if "B" in wanted and disk_a:
             print("B. the same disk on a computer with another TPM", flush=True)
@@ -280,7 +304,42 @@ def main():
                 print("D. skipped: it needs --archive (an update of another version) and scenario A")
             else:
                 print("D. the TPM still unlocks after an update", flush=True)
-                print("   not run yet: see docs/features/encryption.md (the update archive must carry a kernel image signed like the installed one)")
+                if os.path.exists(os.path.join(work, "tpm.complete")):
+                    os.unlink(os.path.join(work, "tpm.complete"))      # the update changes this disk: a next D needs a fresh install
+                archive = os.path.abspath(args.archive)
+                handler = functools.partial(http.server.SimpleHTTPRequestHandler, directory=os.path.dirname(archive))
+                handler.log_message = lambda *a, **k: None
+                server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), handler)
+                threading.Thread(target=server.serve_forever, daemon=True).start()
+                url = f"http://10.0.2.2:{server.server_address[1]}/{os.path.basename(archive)}"
+                version = (re.search(r"ecp_([^-]+)-", os.path.basename(archive)) or [None, "?"])[1]
+                print("   install the update into the spare slot (the first start of it is chosen for the next boot)", flush=True)
+                tpm_a.stop()
+                tpm_a.start()
+                done, text, log = run_vm(
+                    "d-update", work, [(disk_a, False)], "vdb",
+                    "echo RUNNING=$(. /usr/lib/os-release; echo $IMAGE_VERSION); "
+                    f"foundation config set system.developer_mode true; foundation update install {url} --unsigned --yes --force; "
+                    "echo UPDATE-RC=$?; ls /boot/EFI/Linux", args.boot_timeout * 4, tpm=tpm_a)
+                original = (re.search(r"RUNNING=(\S+)", text) or [None, "?"])[1]
+                check("the update was installed into the spare slot", done and "UPDATE-RC=0" in text and "is ready" in text, "see d-update.result")
+                if not done:
+                    print("   the guest did not report; the end of its serial log:\n" + "\n".join(log.splitlines()[-40:]))
+                if "UPDATE-RC=0" in text:
+                    print(f"   installed {original}; the update is {version}; start the updated system with the same TPM", flush=True)
+                    tpm_a.stop()
+                    tpm_a.start()
+                    done, text, log = run_vm(
+                        "d-boot", work, [(disk_a, False)], "vdb",
+                        "echo BOOTED=$(. /usr/lib/os-release; echo $IMAGE_VERSION); echo VAR-SOURCE=$(findmnt -no SOURCE /var); "
+                        "ls /var/ecp-encryption-test && echo DATA-STILL-THERE; cat /proc/cmdline",
+                        args.boot_timeout, tpm=tpm_a)
+                    booted = (re.search(r"BOOTED=(\S+)", text) or [None, ""])[1]
+                    check("the updated system started and it is the new version", done and booted == version, f"booted {booted or '?'}, update {version}")
+                    check("it started without asking for the passphrase", done and not PASS_PROMPT.search(log), "see d-boot.serial")
+                    check("/var is on the unlocked volume and the data is there", "VAR-SOURCE=/dev/mapper/ecp-data" in text and "DATA-STILL-THERE" in text)
+                else:
+                    print(text[-2000:])
     finally:
         tpm_a.stop()
 

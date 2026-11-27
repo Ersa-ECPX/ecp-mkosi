@@ -56,9 +56,13 @@ In QEMU with a software TPM (swtpm), on the built installer and image (`sudo scr
   the recovery key opens it.
 - **B, another TPM:** the boot stops at the unlock prompt and the recovery key finishes it with the data intact.
 - **C, no TPM, passphrase:** the boot asks for the passphrase and typing it finishes the boot.
+- **D, an update:** `--archive` of a newer image (1.0.3, same keys, `scripts/make-update-archive X --no-sign`) is installed into the
+  spare slot, started with the same TPM, and comes up as the new version without a prompt, with `/var` on the unlocked volume and the
+  data in place. This is what the signed policy is for. `--only D --reuse` repeats it on the disk that scenario A left (it refuses a disk
+  without a finished install; D changes the disk, so each D run needs a fresh A).
 - The on-screen prompt of the boot theme was checked in a screenshot (typed characters shown as `*`). The theme change that moves the
   prompt below the progress bar was not looked at again after it.
 
-Not tested: **D**, that the TPM still unlocks after an update (the script has it; it needs `--archive` of a newer signed image, see
-`scripts/qemu-fallback-test`); the installer's encryption page in a booted installer; real hardware; Secure Boot with a real key
-database (swtpm has no endorsement certificates, and the firmware here has Secure Boot off); a TPM with only the SHA-1 bank.
+Not tested: the installer's encryption page in a booted installer; real hardware; Secure Boot with a real key database (swtpm has no
+endorsement certificates, and the firmware here has Secure Boot off); a TPM with only the SHA-1 bank; an update signed by a different
+key (it should ask for the recovery key, not checked).
