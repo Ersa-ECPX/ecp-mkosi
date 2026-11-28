@@ -75,9 +75,18 @@ separate matter (settings sync, later).
 
 - **No timer of its own.** The update check already runs about every six hours (`foundation-autoupdate.timer`, with the network up).
   After it, the same run calls `Devices.CheckinIfDue`, and foundationd sends only if the computer is linked, `devices.enabled` is on
-  and a day has passed since the last attempt. That is one small HTTPS request (about 1 KB) a day and no extra wake-up. A failed
-  attempt is recorded (`Devices.Status` shows it) and not retried before the day is over. It runs even when `ota.auto_check` is off.
-  Diagnostics (anonymous, no link needed) has no service yet; it would use the same ride-along.
+  and about five hours have passed since the last attempt, so every run reports. That is one small HTTPS request (about 1 KB) and no extra
+  wake-up. A failed attempt is recorded (`Devices.Status` shows it) and not retried before that time is over. It runs even when
+  `ota.auto_check` is off. Diagnostics (anonymous, no link needed) has no service yet; it would use the same ride-along.
+- **When the network comes up.** A NetworkManager hook (`/usr/lib/NetworkManager/dispatcher.d/90-foundation-devices`) starts
+  `foundation-devices-online.service` when a connection comes up or the internet becomes reachable (not for a captive portal), and only
+  on a linked computer; the service calls `Devices.CheckinOnline`. foundationd sends if fifteen minutes have passed since the last
+  attempt, and a service that cannot be reached yet (the name servers may not answer in the first second) does not use up that time, so
+  the next event tries again. This is how a rename made on the website reaches the computer within seconds of its coming online, with no
+  polling and no extra wake-up. It is a poll on an event, not a push: a computer that stays online all day learns of a rename at the next
+  scheduled report (at most about six hours). Instant delivery, for commands such as wipe, needs a push channel and belongs to a device
+  management daemon of its own. The hook has not been run against a real NetworkManager or under SELinux: if it does nothing, look for
+  denials (`ausearch -m avc -ts recent`) and run `journalctl -u foundation-devices-online`.
 - Without a linked device the request is anonymous: the random install id and the diagnostics fields only (not built).
 - Reports go to `telemetry.url` and `devices.url` (settings, so a company can point them at its own backend or leave them empty).
   Nothing is sent when the URL is empty or the switch is off.
