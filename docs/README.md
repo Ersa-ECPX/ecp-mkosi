@@ -16,6 +16,7 @@ designed to.
 | Add software | [applications](features/applications.md), [repositories and bundles](features/repositories-and-bundles.md) |
 | Use the command line | [foundation-cli](features/foundation-cli.md) |
 | Build an image, run tests | [building-and-testing](features/building-and-testing.md), [ota-test](ota-test.md) |
+| Know what each script does, or serve an update | [scripts](scripts.md) |
 | Change the code | [../foundation/README.md](../foundation/README.md) |
 
 ## Pages

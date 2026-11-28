@@ -155,6 +155,10 @@
         {
           "path": "docs/features/building-and-testing.md",
           "label": "Building and testing"
+        },
+        {
+          "path": "docs/scripts.md",
+          "label": "Scripts, and serving an update"
         }
       ]
     },

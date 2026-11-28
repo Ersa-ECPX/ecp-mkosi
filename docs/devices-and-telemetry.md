@@ -37,8 +37,9 @@ name (chosen by the person) and nothing else beyond the table.
 Diagnostics adds one more thing: **failure events**, a short fixed reason code and a version. Examples: `update_rolled_back:boot`,
 `boot_failed:initrd`. No logs.
 
-`foundation telemetry show` prints the exact report that would be sent next, and `foundation devices show` the last check-in. What
-the software sends is what the person can read.
+`foundation devices show` prints the exact report that would be sent next (that command exists; `foundation telemetry` does not, because
+diagnostics is not built), and `foundation devices status` shows the link, how the key is kept and the last attempt. What the software
+sends is what the person can read.
 
 ## Devices: how a computer is linked
 
@@ -124,7 +125,10 @@ entitlements (licenses) are also later.
    local server, the privilege drop) and against a real foundationd on a private bus. The TPM seal and unseal also round-trip on a real
    TPM 2.0 (`ECP_TEST_REAL_TPM=1`, off by default). Not tested against a real Prism, as root, or on a booted image. The package
    requires `python3-cryptography`: the Tumbleweed index provides it (python313-cryptography, the same way as python3-gobject).
-3. **The person's side:** `foundation devices` (link, show, unlink, checkin) and the sign-in-to-Prism call in the client library.
+3. **The person's side. Done:** `foundation devices status|show|link|unlink|checkin` (`foundation/devices.py`). `link` runs a sign-in of
+   its own that asks only for `devices:write`, uses the token for the few requests and does not store it. Tested with fakes for the
+   account service and foundationd; never against a real Prism or on a booted image. The app this computer signs in with
+   (`identity.client_id`) must be owned by a site admin and allowed `devices:write`, or Prism refuses with "insufficient scope".
 4. **Deck and installer:** the Devices page, the diagnostics switch, with screenshots in English and Hindi.
 5. **Diagnostics service,** when its home is decided.
 

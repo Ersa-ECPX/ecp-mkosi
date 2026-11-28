@@ -9,7 +9,7 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 dir="${1:-dist}"
 port="${2:-8000}"
-[[ -d "$dir" ]] || { echo "$dir does not exist; run scripts/publish-update first" >&2; exit 1; }
+[[ -d "$dir" ]] || { echo "$dir does not exist; run scripts/make-update-archive VERSION first" >&2; exit 1; }
 shopt -s nullglob
 for f in "$dir"/*.tar.zst "$dir"/update/*.tar.zst; do
   echo "in the guest:  foundation update install http://10.0.2.2:$port/${f#"$dir"/} --unsigned   (needs developer mode: foundation config set system.developer_mode true)"
