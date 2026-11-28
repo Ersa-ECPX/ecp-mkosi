@@ -25,6 +25,10 @@
         "docs/features/storage-and-persistence.md",
         "docs/features/selinux.md",
         {
+          "path": "docs/features/encryption.md",
+          "label": "Disk encryption"
+        },
+        {
           "path": "docs/features/updates.md",
           "label": "Updates (OTA)"
         },
@@ -73,12 +77,20 @@
           "label": "Remote access (SSH)"
         },
         {
+          "path": "docs/features/identity.md",
+          "label": "Identity (sign in with Ersa ID)"
+        },
+        {
           "path": "docs/foundationd.md",
           "label": "Design notes: foundationd"
         },
         {
           "path": "docs/provisioning.md",
           "label": "Design notes: provisioning"
+        },
+        {
+          "path": "docs/devices-and-telemetry.md",
+          "label": "Design notes: devices and diagnostics"
         }
       ]
     },
@@ -111,6 +123,10 @@
         {
           "path": "docs/features/live-medium.md",
           "label": "Installer medium"
+        },
+        {
+          "path": "docs/features/translations.md",
+          "label": "Installer and Deck translations"
         },
         {
           "path": "docs/installer.md",

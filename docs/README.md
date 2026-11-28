@@ -26,7 +26,7 @@ designed to.
 
 **Foundation:** [management service](features/management-service.md) · [command line](features/foundation-cli.md) ·
 [configuration](features/configuration.md) · [deploy](features/deploy.md) · [system extensions](features/system-extensions.md) ·
-[remote access](features/remote-access.md) · designs: [foundationd](foundationd.md), [provisioning](provisioning.md)
+[remote access](features/remote-access.md) · designs: [foundationd](foundationd.md), [provisioning](provisioning.md), [devices and diagnostics](devices-and-telemetry.md)
 
 **Identity:** [sign in with Ersa ID](features/identity.md)
 
