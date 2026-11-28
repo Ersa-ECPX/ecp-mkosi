@@ -125,12 +125,22 @@ entitlements (licenses) are also later.
    local server, the privilege drop) and against a real foundationd on a private bus. The TPM seal and unseal also round-trip on a real
    TPM 2.0 (`ECP_TEST_REAL_TPM=1`, off by default). Not tested against a real Prism, as root, or on a booted image. The package
    requires `python3-cryptography`: the Tumbleweed index provides it (python313-cryptography, the same way as python3-gobject).
-3. **The person's side. Done:** `foundation devices status|show|link|unlink|checkin` (`foundation/devices.py`). `link` runs a sign-in of
-   its own that asks only for `devices:write`, uses the token for the few requests and does not store it. Tested with fakes for the
-   account service and foundationd; never against a real Prism or on a booted image. The app this computer signs in with
-   (`identity.client_id`) must be owned by a site admin and allowed `devices:write`, or Prism refuses with "insufficient scope".
-4. **Deck and installer:** the Devices page, the diagnostics switch, with screenshots in English and Hindi.
-5. **Diagnostics service,** when its home is decided.
+3. **The person's side. Done:** `foundation devices status|show|link|unlink|checkin` (`foundation/devices.py`) and a "This computer" part
+   on Deck's Ersa ID page. There is one sign-in for everything: signing in to Ersa ID (Deck or `foundation identity login`) asks for
+   `devices:write` along with the rest (the default of `identity.scopes`), and linking and unlinking use that stored sign-in. If the
+   account service does not grant the permission the sign-in still works and linking says to sign in again. Linking reports at once, so the
+   computer shows on the account with its report. **Unlinking removes the computer from the account on the website first** (DELETE with the
+   stored sign-in) and then forgets the key here; if the account cannot be told nothing changes, and `foundation devices unlink --local`
+   forgets it on this computer only. Tested with fakes for the account service and foundationd; never against a real Prism or on a booted
+   image. The app this computer signs in with (`identity.client_id`) must be owned by a site admin and allowed `devices:write`, or Prism
+   refuses with "insufficient scope".
+4. **The name.** The account's name for the computer (renamed on the website, or given at linking) comes back in every check-in answer,
+   and the host name follows it when it changes (`devices.sync_hostname`, on by default): spaces become hyphens, the ends are trimmed, only
+   letters, digits and hyphens stay, at most 63 characters ("Ersa Workstation" is `Ersa-Workstation`). A host name set by hand afterwards
+   stays until the name changes again. Checking in sends a `User-Agent`: a CDN in front of the account service refuses the bare Python one
+   with an HTTP 403.
+5. **Deck and installer:** the diagnostics switch, with screenshots in English and Hindi.
+6. **Diagnostics service,** when its home is decided.
 
 ## Open questions
 
